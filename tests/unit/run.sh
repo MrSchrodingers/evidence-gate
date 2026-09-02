@@ -22,6 +22,14 @@ export CLAUDE_ADAPTERS_DIR="$AD"
 # hooks vivem em tres planos desde o ADR 0022; C0/C1 nao existem mais.
 ALLHOOKS="$CTRL $EXEC $EVID"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# LEDGER ISOLADO. `verify-gate.sh` grava em `${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}`, e
+# nenhuma suite exportava a variavel: cada execucao desta suite injetava paradas SINTETICAS no
+# ledger operacional do usuario, no mesmo diretorio que serve de evidencia sobre uso real.
+# Medido em 2026-09-02: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de teste, e
+# a taxa de aprovacao daqueles dois dias ficou inutilizavel como medida de trabalho real.
+# O ledger tambem e CACHE (so `pass` do mesmo snapshot curto-circuita), entao contaminar nos dois
+# sentidos: teste podia herdar `pass` de outro teste com a mesma arvore.
+export EVIDENCE_LEDGER_DIR="$TMP/ledger"
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 run(){ printf '%s' "$1" | bash "$2" 2>"${3:-/dev/null}"; echo $?; }

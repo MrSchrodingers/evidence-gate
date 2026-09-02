@@ -7,7 +7,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 
 | Suite | Assercoes | Exit |
 |---|---:|---:|
-| `tests/unit/regressao-gate.sh` | 65 | 0 |
+| `tests/unit/regressao-gate.sh` | 64 | 1 |
 | `tests/unit/document-tools.sh` | 57 | 0 |
 | `tests/unit/supply-chain.sh` | 9 | 0 |
 | `tests/unit/reprodutibilidade.sh` | variavel (ambiente) | 0 |
@@ -17,13 +17,13 @@ O README referencia este arquivo em vez de duplicar numeros.
 | `tests/unit/fronteira-externa.sh` | 13 | 0 |
 | `tests/unit/managed.sh` | 66 | 0 |
 | `tests/unit/conformidade-managed.sh` | 21 | 0 |
-| `tests/unit/arnes-de-mutacao.sh` | 7 | 0 |
+| `tests/unit/arnes-de-mutacao.sh` | ? | 2 |
 | `tests/unit/schedule.sh` | 34 | 0 |
 | `tests/unit/fronteira-viva.sh` | 188 | 0 |
 | `tests/unit/literatura.sh` | 38 | 0 |
 | `tests/unit/capabilities.sh` | 60 | 0 |
-| `tests/unit/cobertura.sh` | 28 | 0 |
-| `tests/unit/contrato-de-instalador.sh` | 47 | 0 |
+| `tests/unit/cobertura.sh` | 36 | 0 |
+| `tests/unit/contrato-de-instalador.sh` | 53 | 0 |
 | `tests/unit/hooks-de-guarda.sh` | variavel (base) | 0 |
 | `tests/unit/capability-conformance.py` | variavel (base) | 0 |
 | `tests/unit/run.sh` | variavel (ambiente) | 0 |
@@ -43,7 +43,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 | camada de literatura | 13 | passo dedicado no CI |
 | claim ledger | 8 | passo dedicado no CI |
 | capability declarada | 7 | passo dedicado no CI |
-| cobertura de decisao | 5 | passo dedicado no CI |
+| cobertura de decisao | 6 | passo dedicado no CI |
 | adaptadores (auto) | 5 | passo dedicado no CI |
 | capability-conformance (auto) | 27 | passo dedicado no CI |
 | corpus-completude (auto) | 22 | passo dedicado no CI |
@@ -52,7 +52,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 | lint-delta (auto) | 11 | passo dedicado no CI |
 | managed-transitive-trust (auto) | 2 | NAO executado no CI |
 | skill-invocation-policy (auto) | 2 | NAO executado no CI |
-| verify-gate-delta (auto) | 7 | passo dedicado no CI |
+| verify-gate-delta (auto) | 10 | passo dedicado no CI |
 
 ## Cobertura de decisao (branch), medida via subprocesso instrumentado
 
@@ -69,7 +69,7 @@ assercao).
 | `orchestration/schedule.py` | 89.3% | 89.3% | OK |
 | `evidence/corpus/render.py` | 93.6% | 93.6% | OK |
 | `evidence/validate-adapters.py` | 69.3% | 69.3% | OK |
-| `evidence/lint-delta.py` | 98.9% | 98.9% | OK |
+| `evidence/lint-delta.py` | 96.0% | 98.9% | ABAIXO DO PISO |
 
 ## Componentes
 

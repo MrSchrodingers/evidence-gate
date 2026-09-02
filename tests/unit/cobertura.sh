@@ -104,6 +104,79 @@ grep -qF "CATRACA FROUXA" "$SCRATCH/check-frouxa.log"
 chk "  CB-FROUXA rotula como CATRACA FROUXA (pede reaperto), nao como ABAIXO DO PISO" $? 0
 
 echo
+echo "== CB-ANCORA1. quinto campo (ancora) da isencao BATE com o fonte: a isencao permanece "
+echo "valida e '--check' continua OK no mesmo piso exato - G67/A4: nenhum caso ate aqui "
+echo "exercitava o ramo da ancora (CB-ABS2 so escreve isencoes de quatro campos) =="
+python3 - "$SCRATCH/evidence/cobertura.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+alvo = "orchestration/schedule.py|linha|107|heranca-piso-absoluto-2026-08-11\n"
+if s.count(alvo) != 1:
+    print("ENTRADA_ISENCAO_AUSENTE_OU_DUPLICADA", file=sys.stderr)
+    sys.exit(1)
+# quinto campo: texto exato (sem indentacao) que a linha 107 do fonte precisa ter.
+ancorada = alvo.rstrip("\n") + '|print(f"SCHEDULE_ERROR {msg}")\n'
+s = s.replace(alvo, ancorada, 1)
+open(p, "w", encoding="utf-8").write(s)
+PY
+chk "CB-ANCORA1: ancora correta escrita na entrada existente (linha 107)" $? 0
+
+COBERTURA_ALVOS="orchestration/schedule.py:$BASE" \
+COBERTURA_SUITES="tests/unit/schedule.sh" \
+  bash "$SCRATCH/evidence/cobertura.sh" --check >"$SCRATCH/check-ancora1.log" 2>&1
+RC_ANCORA1=$?
+chk "CB-ANCORA1: --check continua OK com a ancora batendo" "$RC_ANCORA1" 0
+grep -qF "ramos/linhas: OK" "$SCRATCH/check-ancora1.log"
+chk "  CB-ANCORA1: a camada 2 relata OK (isencao ancorada continua valendo)" $? 0
+
+echo
+echo "== CB-ANCORA2. quinto campo (ancora) NAO BATE com o fonte: a isencao e RECUSADA - nao "
+echo "ignorada -, '--check' tem que reprovar nomeando o texto ESPERADO (ancora) e o ACHADO "
+echo "(fonte real) =="
+python3 - "$SCRATCH/evidence/cobertura.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+anterior = 'orchestration/schedule.py|linha|107|heranca-piso-absoluto-2026-08-11|print(f"SCHEDULE_ERROR {msg}")\n'
+if s.count(anterior) != 1:
+    print("ANCORA_ANTERIOR_AUSENTE", file=sys.stderr)
+    sys.exit(1)
+# mesma entrada, ancora agora cita um texto que a linha 107 nao tem.
+divergente = anterior.replace('print(f"SCHEDULE_ERROR {msg}")', "return 1", 1)
+s = s.replace(anterior, divergente, 1)
+open(p, "w", encoding="utf-8").write(s)
+PY
+chk "CB-ANCORA2: ancora divergente escrita na MESMA entrada (linha 107)" $? 0
+
+COBERTURA_ALVOS="orchestration/schedule.py:$BASE" \
+COBERTURA_SUITES="tests/unit/schedule.sh" \
+  bash "$SCRATCH/evidence/cobertura.sh" --check >"$SCRATCH/check-ancora2.log" 2>&1
+RC_ANCORA2=$?
+chk "CB-ANCORA2: --check reprova quando a ancora nao bate com o fonte" "$RC_ANCORA2" 1
+grep -qF "NAO JUSTIFICADO" "$SCRATCH/check-ancora2.log"
+chk "  CB-ANCORA2: a isencao com ancora divergente e RECUSADA, nao apenas ignorada" $? 0
+grep -qF "linha 107: ancora esperava 'return 1', achou 'print(f\"SCHEDULE_ERROR {msg}\")'" \
+  "$SCRATCH/check-ancora2.log"
+chk "  CB-ANCORA2: a mensagem nomeia o ESPERADO (ancora) e o ACHADO (fonte real)" $? 0
+
+python3 - "$SCRATCH/evidence/cobertura.sh" <<'PY'
+# restaura a entrada ao estado sem ancora - CB3 em diante nao deve herdar uma ancora
+# divergente que reprovaria por um motivo alheio ao que aquelas secoes medem.
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+divergente = "orchestration/schedule.py|linha|107|heranca-piso-absoluto-2026-08-11|return 1\n"
+original = "orchestration/schedule.py|linha|107|heranca-piso-absoluto-2026-08-11\n"
+if s.count(divergente) != 1:
+    print("ESTADO_INESPERADO_PARA_RESTAURAR", file=sys.stderr)
+    sys.exit(1)
+s = s.replace(divergente, original, 1)
+open(p, "w", encoding="utf-8").write(s)
+PY
+chk "CB-ANCORA2: entrada restaurada ao estado sem ancora para as secoes seguintes" $? 0
+
+echo
 echo "== mutacao (em COPIA): remove o UNICO caso que exercita 'ciclo detectado' (F12) =="
 python3 - "$SCRATCH/tests/unit/schedule.sh" <<'PY'
 import sys
@@ -332,7 +405,7 @@ chk "  CB-COMPL2: a saida nomeia o arquivo orfao especifico" $? 0
 
 echo
 echo "================ PASS=$P  FAIL=$F ================"
-EXPECTED=28
+EXPECTED=36
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

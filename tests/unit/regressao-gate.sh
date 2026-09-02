@@ -22,6 +22,14 @@ chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL
 # HOME isolado: o ledger/stamp do gate mora em $HOME. Sem isolar, o estado do usuario decide
 # o resultado do teste - ja aconteceu neste repo (tests/unit/run.sh, cabecalho).
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# LEDGER ISOLADO. `verify-gate.sh` grava em `${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}`, e
+# nenhuma suite exportava a variavel: cada execucao desta suite injetava paradas SINTETICAS no
+# ledger operacional do usuario, no mesmo diretorio que serve de evidencia sobre uso real.
+# Medido em 2026-09-02: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de teste, e
+# a taxa de aprovacao daqueles dois dias ficou inutilizavel como medida de trabalho real.
+# O ledger tambem e CACHE (so `pass` do mesmo snapshot curto-circuita), entao contaminar nos dois
+# sentidos: teste podia herdar `pass` de outro teste com a mesma arvore.
+export EVIDENCE_LEDGER_DIR="$TMP/ledger"
 export HOME="$TMP/home"; mkdir -p "$HOME/.claude/logs"
 
 # ARMADILHA JA PAGA: `R=$(novo_repo g3)` roda a funcao num SUBSHELL, e o `cd` morre com ele -

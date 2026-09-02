@@ -15,6 +15,14 @@ GATE="$PWD/evidence/hooks/verify-gate.sh"
 export CLAUDE_ADAPTERS_DIR="$PWD/execution/adapters/code"
 command -v ruff >/dev/null 2>&1 || { echo "NAO VERIFICADO: ruff ausente do PATH." >&2; exit 2; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/d2e.XXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+# LEDGER ISOLADO. `verify-gate.sh` grava em `${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}`, e
+# nenhuma suite exportava a variavel: cada execucao desta suite injetava paradas SINTETICAS no
+# ledger operacional do usuario, no mesmo diretorio que serve de evidencia sobre uso real.
+# Medido em 2026-09-02: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de teste, e
+# a taxa de aprovacao daqueles dois dias ficou inutilizavel como medida de trabalho real.
+# O ledger tambem e CACHE (so `pass` do mesmo snapshot curto-circuita), entao contaminar nos dois
+# sentidos: teste podia herdar `pass` de outro teste com a mesma arvore.
+export EVIDENCE_LEDGER_DIR="$TMP/ledger"
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 
@@ -238,27 +246,97 @@ PYEOF
 chk "todo codigo emitido em arquivo que nao parseia esta em breakage_codes" "$FALTANDO" ""
 
 echo "== DE11. byte nao-UTF-8 no diff nao apaga o mapa de hunks (G74) =="
-# O DEFEITO MAIS CARO DESTA ONDA, e ele era invisivel porque falhava para o lado permissivo:
-# `for l in sys.stdin` decodifica UTF-8 e MORRE em qualquer outro byte. Com `2>/dev/null` no
-# executor e `|| HUNKS='{}'` logo abaixo, parser morto virava mapa VAZIO - que nao e "nada foi
-# tocado", e sim o valor que faz TODA a higiene ser ignorada. Medido em /var/www/amaral-intern-hub:
-# byte 0xe3, HUNKS com ZERO chaves, e a onda publicou `ignorados 80` como se fosse escopo de delta.
+# O DEFEITO MAIS CARO DESTA ONDA: `for l in sys.stdin` decodifica UTF-8 e MORRE em outro byte.
+# Com `2>/dev/null` no executor e `|| HUNKS='{}'` logo abaixo, parser morto virava mapa VAZIO -
+# que nao e "nada foi tocado", e sim o valor que faz TODA a higiene ser ignorada.
+#
+# C2 DO REVISOR, e a primeira versao deste caso era TAUTOLOGICA: a fixture punha o byte DENTRO do
+# .py, entao `ruff` nao o decodificava e emitia `E902` - que esta em `breakage_codes` e bloqueia
+# INDEPENDENTEMENTE do mapa de hunks. Medido: com o parser revertido ao defeito, a suite seguia
+# 45/45 verde. O caso afirmava "bloqueia", e era verdade pelo motivo errado.
+#
+# A fixture que DISCRIMINA separa as duas coisas: o `.py` e ASCII PURO e carrega um F401 na linha
+# tocada (higiene, que so bloqueia se o mapa existir), e o byte problematico mora num arquivo
+# NAO-Python do mesmo diff - onde ele quebra o parser sem virar diagnostico do analisador.
 repo d11
-printf 'import os\n\nTEXTO = "acentua\xe3\xe7ao em latin-1"\n' > latin.py
-chk "o arquivo tem byte nao-UTF-8 (o caso nao e vacuo)" \
-    "$(python3 -c 'print(0 if open("latin.py","rb").read().decode("utf-8","ignore").encode()==open("latin.py","rb").read() else 1)')" 1
+printf 'import os\n\nVALOR = 1\n' > limpo.py
+printf 'campo;valor\nacentua\xe3\xe7ao;1\n' > dados.csv
 git add -A
-# F401 na linha 1, DENTRO do hunk: so bloqueia se o mapa de hunks existir.
-chk "higiene na linha tocada ainda BARRA (parser sobreviveu ao byte)" "$(gate)" 2
-chk "  e o motivo e o diagnostico, nao lacuna de leitura" \
-    "$(grep -c 'mapa de linhas tocadas NAO pode ser lido' "$TMP/o" "$TMP/e" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')" 0
-# CONTROLE NEGATIVO: sem o byte problematico o comportamento e o mesmo - o caso mede o byte,
-# nao "o portao barra qualquer coisa".
+chk "o diff carrega byte nao-UTF-8 (o caso nao e vacuo)" \
+    "$(git diff --cached | python3 -c 'import sys; b=sys.stdin.buffer.read(); print(0 if b.decode("utf-8","ignore").encode()==b else 1)')" 1
+chk "  e o analisador NAO reporta nada sobre o arquivo do byte" \
+    "$(ruff check --isolated --no-cache --select F,E9 --output-format json . 2>/dev/null | python3 -c 'import json,sys; print(sum(1 for x in json.load(sys.stdin) if x["code"]=="E902"))')" 0
+chk "  o unico diagnostico e higiene (F401), que depende do mapa de hunks" \
+    "$(ruff check --isolated --no-cache --select F,E9 --output-format json . 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d), d[0]["code"] if d else "-")')" "1 F401"
+chk "  o portao BARRA" "$(gate)" 2
+# E AQUI ESTA O DISCRIMINANTE. Com o parser morto o portao TAMBEM sai 2 - mas como LACUNA
+# ("o mapa de linhas tocadas NAO pode ser lido"), nao por julgar o F401. Medir so o exit code
+# deixava o mutante VIVO, que foi o que o revisor mediu: suite 45/45 verde com a correcao
+# revertida. E a regra que este repositorio escreveu depois de G66 e nao aplicou aqui.
+chk "  e a causa e o DIAGNOSTICO, nao lacuna de leitura do mapa" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'mapa de linhas tocadas NAO pode ser lido')" 0
+chk "  e o F401 e nomeado no veredito" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'F401')" 1
+# CONTROLE NEGATIVO: sem o arquivo do byte, o mesmo F401 barra igual. Sem isto, o caso nao
+# separaria "sobreviveu ao byte" de "barra qualquer coisa".
 repo d11b
-printf 'import os\n\nTEXTO = "ascii puro"\n' > limpo.py; git add -A
-chk "  CONTROLE: mesmo arquivo em ASCII puro barra igual" "$(gate)" 2
+printf 'import os\n\nVALOR = 1\n' > limpo.py; git add -A
+chk "  CONTROLE: o mesmo F401 sem byte nenhum barra igual" "$(gate)" 2
 
-EXPECTED=37
+echo "== DE12. negativa repetida muda a MENSAGEM, nao o veredito (G77) =="
+# MEDIDO NO LEDGER em 2026-09-02: 1.992 de 8.600 paradas (23,2%) sao reexecucoes estritamente
+# redundantes - mesmo snapshot, mesmos verificadores, mesmo ambiente, veredito anterior ja `fail`.
+# Um snapshot em /home/ti/debthub-wt-phone3 foi julgado 336 vezes, todas fail, em dois dias.
+# A resposta NAO e cachear o fail (consequencia assimetrica: bloquearia ate a arvore mudar, e ela
+# so muda se o ator agir - que e o que ele nao esta conseguindo). E parar de repetir a mensagem.
+repo d12
+printf 'def f():\n    return jamais_definido\n' > q.py; git add -A
+chk "1a parada barra" "$(gate)" 2
+chk "  e NAO fala em laco ainda" \
+    "$(grep -c 'MESMO ESTADO DE ARVORE' "$TMP/o" "$TMP/e" 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')" 0
+chk "  2a parada barra" "$(gate)" 2
+chk "  3a parada barra" "$(gate)" 2
+chk "  e a 4a AINDA barra (o veredito nao muda)" "$(gate)" 2
+chk "  mas agora a mensagem NOMEIA a repeticao" \
+    "$(grep -c 'MESMO ESTADO DE ARVORE' "$TMP/o" "$TMP/e" 2>/dev/null | awk -F: '{s+=$2} END{print (s>0)?1:0}')" 1
+# `grep -o` sobre DOIS arquivos prefixa cada casamento com o caminho, entao extrair "o numero" da
+# linha inteira pegava digito do path. `cat` primeiro, extrai depois.
+chk "  e conta as tentativas identicas" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -o 'ESTA E A [0-9]*a PARADA' | head -1 | grep -oE '[0-9]+')" 4
+# CONTROLE NEGATIVO: mudar o arquivo muda o snapshot, e o contador reinicia - senao o caso mediria
+# "o gate fala de laco depois de 3 paradas", e nao "depois de 3 paradas IGUAIS".
+printf 'def f():\n    return outro_jamais\n' > q.py; git add -A
+gate >/dev/null
+chk "  CONTROLE: arvore diferente barra SEM falar em laco" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'MESMO ESTADO DE ARVORE')" 0
+
+echo "== DE13. falha de temporario NAO vira aprovacao nem aprovacao no ledger (G78/C3) =="
+# O DEFEITO MAIS GRAVE DESTA SERIE, e estava VIVO em producao quando foi achado. `mktemp` que
+# falha deixava `$RAWF`/`$HUNKF` vazios; o nucleo recebia `--hunks-file ""`, caia no default
+# `--hunks {}` - o mapa vazio, o valor mais permissivo - e o turno era APROVADO e gravado como
+# `pass`. Medido contra o hook em vigor, com TMPDIR nao gravavel: rc=0, stdout VAZIO, ledger
+# `pass`; e o `pass` e PERMANENTE para aquele estado, porque curto-circuita as paradas futuras.
+# Falha TRANSITORIA virando aprovacao PERMANENTE.
+# Sem este caso o mutante MVG10 sobrevive - foi o que o arnes de mutacao mediu.
+repo d13
+printf 'import os\n' > sujo.py; git add -A
+chk "com TMPDIR normal: barra" "$(gate)" 2
+mkdir -p "$TMP/tmp-sem-permissao"; chmod 500 "$TMP/tmp-sem-permissao"
+# ledger zerado ANTES da parada com falha, para que a assercao seguinte fale so sobre ela
+rm -rf "$EVIDENCE_LEDGER_DIR"
+gate_tmp(){ printf '{}' | TMPDIR="$TMP/tmp-sem-permissao" timeout 120 bash "$GATE" >"$TMP/o" 2>"$TMP/e"; echo $?; }
+chk "  com TMPDIR NAO gravavel: NAO aprova" "$(gate_tmp)" 2
+chk "  e a causa e nomeada (nao silencio)" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'nao foi possivel gravar os arquivos temporarios')" 1
+# O SEGUNDO DANO E O PIOR: o veredito gravado nao pode ser `pass`, senao a falha transitoria
+# envenena o cache daquele snapshot para sempre.
+chk "  e o ledger NAO registra pass" \
+    "$(cat "$EVIDENCE_LEDGER_DIR"/*.jsonl 2>/dev/null | grep -c '"verdict":"pass"')" 0
+# CONTROLE: com o TMPDIR sao de novo, o MESMO snapshot continua sendo barrado - prova que nada
+# ficou envenenado no cache.
+chk "  CONTROLE: mesmo snapshot com TMPDIR sao volta a barrar" "$(gate)" 2
+
+EXPECTED=53
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

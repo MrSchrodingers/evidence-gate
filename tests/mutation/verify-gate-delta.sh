@@ -68,6 +68,54 @@ mutante MVG5 "F4: deteccao de extensao volta ao pipe que toma SIGPIPE" \
 mutante MVG6 "upstream aceito por ECO, sem validar o objeto" \
   'if [ -z "$UPSTREAM" ] || ! git -C "$ROOT" rev-parse --verify -q "${UPSTREAM}^{commit}" >/dev/null 2>&1; then' \
   'if false; then'
+# G74 (A5 do revisor, ver tests/unit/delta-e2e.sh DE11): o parser de hunks decodificava UTF-8
+# ESTRITO e morria no primeiro byte que nao fosse - o diff carrega conteudo de arquivo, entao
+# fonte em latin-1 no mesmo diff derrubava o parser inteiro. `surrogateescape` preserva o byte
+# cru sem decodificar (nome de arquivo e marcador de hunk sao ASCII). Medido: DE11 mata este
+# mutante pela CAUSA (o F401 nomeado no veredito, e a ausencia da mensagem de mapa ilegivel),
+# nao so pelo exit code - e o proprio caso documenta uma versao anterior que era tautologica
+# medindo so RC==2.
+mutante MVG8 "G74: parser de hunks volta a decodificar UTF-8 estrito e morre em byte nao-UTF-8" \
+  'for l in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n"):' \
+  'for l in sys.stdin:'
+# G77 (A5 do revisor, ver tests/unit/delta-e2e.sh DE12): a partir do limiar de tentativas
+# identicas o portao passa a NOMEAR a repeticao ao operador, sem mudar o veredito. Subir o
+# limiar para 999 faz a mensagem nunca aparecer dentro de qualquer numero de paradas que um
+# teste pratico reproduz.
+mutante MVG9 "G77: limiar de repeticao nunca dispara, o portao nunca nomeia o laco" \
+  'if [ "$TENTATIVAS_IDENTICAS" -ge 3 ]; then' \
+  'if [ "$TENTATIVAS_IDENTICAS" -ge 999 ]; then'
+# C3 (A5 do revisor): a guarda que declara LACUNA quando `mktemp`/a escrita dos temporarios
+# falha e o pior defeito da serie - sem ela, `HUNKF`/`RAWF` vazios caem no default mais
+# PERMISSIVO do nucleo (mapa de hunks vazio), e uma falha TRANSITORIA de TMPDIR vira um `pass`
+# PERMANENTE gravado no ledger para aquele estado de arvore.
+# O MUTANTE PRECISA SER O REVERT EXATO, nao um substituto mais cru. Uma primeira tentativa
+# trocou o if inteiro por `if false; then` - isso tambem apaga os DOIS `printf` que a propria
+# condicao executa (o corpo do if nunca roda quando a condicao e `false`), entao o mutante
+# morria SEMPRE, mesmo no caminho feliz (RAWF ficava vazio para TODO turno, nao so quando
+# mktemp falha) - GATILHO ERRADO: DE1-DE12 discriminavam "nunca escreve nada", nao
+# especificamente C3. `de`/`para` abaixo restauram o codigo ANTERIOR a correcao byte a byte
+# (confirmado contra `git diff HEAD -- evidence/hooks/verify-gate.sh`): os dois `printf`
+# continuam INCONDICIONAIS - o caminho feliz fica identico -, so a deteccao de falha some.
+# MEDIDO com este mutante preciso: tests/unit/delta-e2e.sh sai 48/48 verde (EXIT=0) - SOBREVIVE.
+# Nenhum caso ali forca `mktemp`/escrita a falhar (TMPDIR nao gravavel). Isto e o GAP real que
+# A5 pediu para reportar, nao para forjar - tests/unit/delta-e2e.sh pertence a outro agente
+# nesta tarefa e esta fora do escopo de edicao aqui.
+mutante MVG10 "C3: guarda de mktemp/escrita falha removida - falha transitoria vira aprovacao" \
+  'if [ -z "$HUNKF" ] || [ -z "$RAWF" ] \
+       || ! printf '"'"'%s'"'"' "$HUNKS" > "$HUNKF" 2>/dev/null \
+       || ! printf '"'"'%s'"'"' "$RAW" > "$RAWF" 2>/dev/null; then
+      LACUNAS="$LACUNAS
+  - $ID: nao foi possivel gravar os arquivos temporarios do analisador (TMPDIR=${TMPDIR:-/tmp} sem espaco ou sem permissao). NADA foi julgado neste turno - e nada foi gravado no ledger como aprovado."
+      [ -n "${HUNKF:-}" ] && rm -f "$HUNKF"
+      [ -n "${RAWF:-}" ] && rm -f "$RAWF"
+      [ "$TMPERR" != /dev/null ] && rm -f "$TMPERR"
+      continue
+    fi
+' \
+  'printf '"'"'%s'"'"' "$HUNKS" > "$HUNKF" 2>/dev/null
+    printf '"'"'%s'"'"' "$RAW" > "$RAWF" 2>/dev/null
+'
 
 echo
 echo "MUTANTES=$((P-1+F)) MORTOS=$((P-1)) SOBREVIVENTES=$F"

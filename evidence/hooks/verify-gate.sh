@@ -341,11 +341,55 @@ fi
 KEY="$(printf '%s' "$ROOT" | sha)"
 LEDGER="$LEDGER_DIR/${KEY}.jsonl"
 mkdir -p "$LEDGER_DIR" 2>/dev/null || true
-PRIOR="$(grep -F "\"snapshot\":\"$SNAPSHOT\"" "$LEDGER" 2>/dev/null \
-         | grep -F "\"verifiers\":\"$VERIFIERS\"" | grep -F "\"env\":\"$ENVD\"" | tail -1)"
+IDENTICAS="$(grep -F "\"snapshot\":\"$SNAPSHOT\"" "$LEDGER" 2>/dev/null \
+         | grep -F "\"verifiers\":\"$VERIFIERS\"" | grep -F "\"env\":\"$ENVD\"")"
+PRIOR="$(printf '%s' "$IDENTICAS" | tail -1)"
 if [ -n "$PRIOR" ] && [ "$(printf '%s' "$PRIOR" | jq -r '.verdict' 2>/dev/null)" = "pass" ]; then
   exit 0   # mesmo snapshot, mesmos verificadores, mesmo ambiente, veredito aprovado
 fi
+
+# --- G77: NEGATIVA REPETIDA E SINAL, NAO ROTINA ---
+#
+# Medido no ledger em 2026-09-02, sobre 8.600 paradas com veredito: 1.992 (23,2%) sao reexecucoes
+# ESTRITAMENTE redundantes - mesmo snapshot, mesmos verificadores, mesmo ambiente, e o veredito
+# anterior ja era `fail`. Um unico snapshot em /home/ti/debthub-wt-phone3 foi julgado 336 vezes,
+# todas `fail`, em dois dias.
+#
+# A leitura barata desse numero e "cache o `fail`". Ela esta errada por consequencia assimetrica:
+# `pass` cacheado que estivesse errado libera UM turno; `fail` cacheado que estivesse errado
+# bloqueia o repositorio ATE a arvore mudar, e a arvore so muda se o ator agir - que e exatamente
+# o que ele nao esta conseguindo fazer. Cachear ali fecharia o laco POR FORA, mantendo a causa.
+#
+# A causa e outra: o ator recebe a MESMA negativa e nao consegue agir sobre ela. Repetir a
+# mensagem pela 336a vez nao e verificacao, e ruido com custo. Entao a partir do limiar o gate
+# muda o QUE DIZ - nomeia a repeticao, o numero de tentativas e as unicas saidas reais - em vez de
+# repetir. O veredito NAO muda: continua bloqueando, porque o defeito continua la.
+#
+# O limiar e 3 e a escolha e declarada: 1 seria a primeira parada legitima (o ator ainda nao viu a
+# mensagem), 2 e a tentativa honesta de corrigir, e a partir da 3a a evidencia e de que a mensagem
+# nao esta bastando. Nao ha experimento por tras deste numero - e um piso conservador, e trocar
+# por outro exige medir, nao opinar.
+# A2 DO REVISOR: `grep -c '"verdict":"fail"'` contava so `fail`, mas a mensagem abaixo afirma
+# "ESTA E A Na PARADA COM ESTE MESMO ESTADO DE ARVORE" - sobre o ESTADO (snapshot+verifiers+env),
+# nao sobre qual foi o veredito. Medido com ledger sintetico de 2 `gap` + 3 `fail` identicos:
+# paradas reais = 5, contagem antiga = 3, a mensagem diria "4a parada" quando a real seria a 6a.
+# ESCOLHA: a contagem passa a refletir a frase (conta `fail` E `gap`; `pass` do mesmo estado nunca
+# chega aqui - sai por cache na linha ~347), em vez de estreitar a frase para "so fail". Motivo:
+# `gap` e parada tao repetida quanto `fail` quando nada muda entre uma parada e a seguinte (mesmo
+# snapshot, mesmos verificadores, mesmo ambiente) - a causa de G77 (ator recebe a mesma resposta e
+# nao consegue agir) vale para as duas; estreitar a frase esconderia do ator paradas que ele de fato
+# ja sofreu, so que com o motivo diferente.
+# O predicado exige REGISTRO JSON VALIDO, nao `grep`: `grep -F`, usado para montar $IDENTICAS
+# acima, casa SUBSTRING - uma linha TRUNCADA por escrita concorrente (o ledger e `>>` sem lock
+# entre processos) pode conter o trecho procurado sem ser um JSON valido, e entrava na contagem
+# como parada real. `jq -R 'fromjson?'` descarta em silencio o que nao parseia como objeto.
+TENTATIVAS_IDENTICAS=0
+if [ -n "$IDENTICAS" ]; then
+  TENTATIVAS_IDENTICAS="$(printf '%s\n' "$IDENTICAS" \
+    | jq -Rc 'fromjson? | select(type=="object") | select(.verdict=="fail" or .verdict=="gap") | 1' 2>/dev/null \
+    | wc -l | tr -d ' ')"
+fi
+case "$TENTATIVAS_IDENTICAS" in ''|*[!0-9]*) TENTATIVAS_IDENTICAS=0 ;; esac
 # veredito anterior `fail` ou `gap` NAO e reutilizado: reexecuta. Nunca vira verde por cache.
 
 registra(){  # $1=verdict $2=detalhe
@@ -526,10 +570,29 @@ print(json.dumps(dict(h)))' 2>/dev/null)"
     # G74: `--hunks` tambem estoura MAX_ARG_STRLEN, e nunca tinha estourado so porque o parser
     # de diff morria antes em repositorio grande. Corrigido o parser, o mapa do amaral passou a
     # ter 2685 chaves e o hook morreu com `Argument list too long` (exit 126). Mesmo remedio.
-    HUNKF="$(mktemp "${TMPDIR:-/tmp}/tollens-hunks.XXXXXX")" || HUNKF=""
-    printf '%s' "$HUNKS" > "$HUNKF" 2>/dev/null
-    RAWF="$(mktemp "${TMPDIR:-/tmp}/tollens-raw.XXXXXX")" || RAWF=""
-    printf '%s' "$RAW" > "$RAWF" 2>/dev/null
+    HUNKF="$(mktemp "${TMPDIR:-/tmp}/tollens-hunks.XXXXXX" 2>/dev/null)" || HUNKF=""
+    RAWF="$(mktemp "${TMPDIR:-/tmp}/tollens-raw.XXXXXX" 2>/dev/null)" || RAWF=""
+    # C3 DO REVISOR, e e o pior defeito desta serie: `mktemp` que falha nao pode virar aprovacao.
+    # Com `HUNKF=""` o nucleo recebia `--hunks-file ""`, que e FALSY, caia no default `--hunks {}`
+    # - o mapa vazio, o valor mais permissivo - e o turno passava. Medido ponta a ponta contra o
+    # hook EM VIGOR, com TMPDIR nao gravavel:
+    #     A) TMPDIR normal ............ rc=2   (bloqueia, correto)
+    #     B) TMPDIR nao gravavel ...... rc=0, stdout VAZIO, ledger grava `pass`
+    #     D) mesmo snapshot, TMPDIR sao  rc=0  (o `pass` envenenado curto-circuita)
+    # O segundo dano e pior que o primeiro: a falha e TRANSITORIA e o `pass` e PERMANENTE para
+    # aquele estado de arvore. A raiz e preexistente - `RAWF` faz isto desde F3 -, e esta onda a
+    # replicou numa segunda variavel dentro do comentario que dizia estar fechando a classe.
+    # Falha de escrita e LACUNA declarada, como ja e para o mapa ilegivel 70 linhas acima.
+    if [ -z "$HUNKF" ] || [ -z "$RAWF" ] \
+       || ! printf '%s' "$HUNKS" > "$HUNKF" 2>/dev/null \
+       || ! printf '%s' "$RAW" > "$RAWF" 2>/dev/null; then
+      LACUNAS="$LACUNAS
+  - $ID: nao foi possivel gravar os arquivos temporarios do analisador (TMPDIR=${TMPDIR:-/tmp} sem espaco ou sem permissao). NADA foi julgado neste turno - e nada foi gravado no ledger como aprovado."
+      [ -n "${HUNKF:-}" ] && rm -f "$HUNKF"
+      [ -n "${RAWF:-}" ] && rm -f "$RAWF"
+      [ "$TMPERR" != /dev/null ] && rm -f "$TMPERR"
+      continue
+    fi
     VER="$(python3 "$LD" --raw-file "$RAWF" --map "$MAPA" --strip-prefix "$ROOT/" \
              --hunks-file "$HUNKF" --baseline "$BL" --nested-roots "$NESTED" \
              --breakage-codes "$BRK" 2>"$TMPERR")"; RC=$?
@@ -720,13 +783,33 @@ done
 # --- veredito conjuntivo ---
 if [ -n "$FALHAS" ]; then
   registra "fail" "falharam:$FALHAS"
+  # G77: a partir do limiar, a mensagem PARA de se repetir e passa a nomear a repeticao. O
+  # veredito nao muda - o defeito continua la -, mas dizer a mesma coisa pela N-esima vez e o
+  # comportamento que produziu 336 negativas identicas sobre uma arvore que nunca mudou.
+  LACO=""
+  if [ "$TENTATIVAS_IDENTICAS" -ge 3 ]; then
+    LACO="
+
+*** ESTA E A $((TENTATIVAS_IDENTICAS + 1))a PARADA COM ESTE MESMO ESTADO DE ARVORE. ***
+Snapshot, verificadores e ambiente sao IDENTICOS aos das $TENTATIVAS_IDENTICAS anteriores: nada do
+que voce fez desde entao mudou o que este portao mede. Repetir a correcao nao vai mudar o
+resultado. As saidas REAIS, e sao estas:
+  1. Mudar de fato um dos arquivos que o verificador aponta acima - o snapshot e digest de HEAD
+     mais o de cada arquivo alterado, entao edicao que nao toca esses arquivos nao muda nada aqui.
+  2. Se o defeito e PREEXISTENTE e nao do seu turno, dizer isso ao operador com o nome do arquivo
+     e a linha, em vez de tentar de novo. O portao nao distingue sozinho divida herdada de
+     regressao fora dos codigos declarados em \`breakage_codes\`.
+  3. Se o verificador esta errado sobre este codigo, isso e um defeito do adaptador e precisa ser
+     reportado ao operador - nao contornado.
+NAO tente uma quarta variacao da mesma correcao sem antes dizer ao operador o que esta travando."
+  fi
   reporta "GATE - VERIFICACAO FALHOU. O snapshot NAO e um candidato valido.
 Verificadores aplicados:$ECOS
 Reprovaram:$FALHAS
 $SAIDA
 ---
 Estado: NOT_VERIFIED. O sinal e externo - nao declare corrigido por auto-avaliacao.
-Este hook nao certifica nada: mesmo passando, o veredito final e da CI sobre o SHA.$AVISO_REPO"
+Este hook nao certifica nada: mesmo passando, o veredito final e da CI sobre o SHA.$AVISO_REPO$LACO"
 fi
 if [ -n "$LACUNAS" ]; then
   registra "gap" "lacunas:$LACUNAS"

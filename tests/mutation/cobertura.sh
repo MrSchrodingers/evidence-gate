@@ -2,7 +2,7 @@
 # VALIDACAO POR MUTACAO - o proprio piso de cobertura de decisao (evidence/cobertura.sh).
 #
 # Regra de metodo 2 (ADR 0020): garantia de seguranca so vale se, ao remove-la, o teste
-# REPROVA. Cinco mutantes, um por garantia introduzida ou preservada nesta correcao da folga
+# REPROVA. Seis mutantes, um por garantia introduzida ou preservada nesta correcao da folga
 # estrutural apontada pelo portao final da onda 5 (piso ABSOLUTO == medido, predicado
 # absoluto sobre ramos/linhas com isencao, e completude de ALVOS):
 #   MCB1 - `float(piso)` lido de ALVOS e descartado em favor de 0.0 na leitura da CLI (a
@@ -17,6 +17,9 @@
 #         cobertos ao lado, teria que reprovar por FORA do percentual.
 #   MCB5 - camada 3 (completude de ALVOS) para de reprovar um candidato novo sem piso nem
 #         exclusao - um probe nasce sem cobertura, em silencio.
+#   MCB6 - conferencia da ANCORA (quinto campo de ISENCOES, G67/A4) para de recusar uma
+#         isencao cujo texto NAO bate com o fonte - a isencao volta a valer so pelo numero de
+#         linha, o modo de falha que a ancora existe para fechar.
 # tests/unit/cobertura.sh (REG) e quem precisa morder cada um: ele ja teve motivo pra existir
 # (a mesma suite discrimina o mutante de CONTEUDO em orchestration/schedule.py - ver CB3/CB4
 # daquele arquivo); aqui o alvo sob mutacao e o MECANISMO, nao o conteudo medido por ele.
@@ -30,7 +33,7 @@ ORIG="evidence/cobertura.sh"
 REG="tests/unit/cobertura.sh"
 TMP="$(mktemp -d)"; trap 'cp -f "$TMP/orig.sh" "$ORIG" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 cp -f "$ORIG" "$TMP/orig.sh"
-P=0; F=0; BASELINE=nao; EXPECTED_MUTANTS=5
+P=0; F=0; BASELINE=nao; EXPECTED_MUTANTS=6
 
 echo "== baseline: tests/unit/cobertura.sh precisa passar ANTES de qualquer mutacao =="
 if bash "$REG" >/dev/null 2>&1; then echo "  PASS  baseline verde"; BASELINE=ok
@@ -124,6 +127,15 @@ mutante MCB5 "candidato nao contabilizado tem que reprovar, nao so aparecer no r
     print("completude de ALVOS: candidato(s) sem piso e sem exclusao (aparece em silencio):")' \
         '    problema = problema
     print("completude de ALVOS: candidato(s) sem piso e sem exclusao (aparece em silencio):")'
+
+# MCB6 - conferencia da ANCORA (quinto campo de ISENCOES): uma isencao cujo texto NAO bate
+# com o fonte precisa ser RECUSADA, nunca aceita so pelo numero de linha. G67/A4: ate esta
+# correcao nenhum mutante e nenhum caso de tests/unit/cobertura.sh exercitava este ramo -
+# CB-ABS2 so escrevia isencoes de quatro campos, e o ramo da ancora nunca rodava.
+mutante MCB6 "ancora divergente do fonte tem que RECUSAR a isencao, nao aceitar pelo numero" \
+  "CB-ANCORA2: --check reprova quando a ancora nao bate com o fonte" \
+  troca '                if achado != esperado:' \
+        '                if False:'
 
 cp -f "$TMP/orig.sh" "$ORIG"
 echo

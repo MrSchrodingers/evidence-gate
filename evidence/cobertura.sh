@@ -216,6 +216,13 @@ EOF
 # NOTA DE FORMATO, aprendida aqui: este heredoc so aceita linhas `caminho|tipo|item|motivo`.
 # Comentario dentro dele vira entrada malformada e derruba dezessete casos de
 # tests/unit/cobertura.sh de uma vez, com diagnostico que aponta para outro lugar.
+# S4/A6 DO REVISOR: `motivo` (e a ANCORA opcional, quinto campo) NAO PODEM CONTER O CARACTER
+# LITERAL `|`. O parser (`linha.split("|", 4)`, mais abaixo no heredoc Python) divide a linha em
+# no maximo 5 campos; um `|` a mais dentro do motivo desloca o resto da linha para o campo de
+# ancora, e a isencao passa a ser recusada por uma ancora ESPURIA que ninguem escreveu de
+# proposito. Medido nesta tarefa: das 43 linhas de ISENCOES hoje, so 2 usam o quinto campo, e
+# nenhuma tem `|` no motivo - sem regressao presente, mas o contrato e este. Se o motivo
+# precisar do caractere, use outro separador dentro do texto (`;`, `-`), nunca `|`.
 # `evidence/corpus/render.py`: os seis itens abaixo sao os ramos de erro de MARCADOR NAO
 # RESOLVIDO em `main()`. Sao inalcancaveis numa arvore conforme por construcao, e nao por
 # falta de teste: `tests/unit/governance-links.py` recusa marcador orfao ANTES de o renderer
@@ -419,6 +426,9 @@ for linha in le_linhas(pendente_path):
 isencoes = {}
 ancoras = {}
 for linha in le_linhas(isencoes_path):
+    # S4/A6: motivo/ancora nao podem conter `|` - ver NOTA DE FORMATO no cabecalho do heredoc
+    # ISENCOES acima. `split(maxsplit=4)` e posicional; um `|` extra no motivo vira campo 5
+    # (ancora espuria) em vez de continuar dentro do motivo.
     partes = linha.split("|", 4)
     caminho, tipo, alvo_item, motivo = partes[:4]
     isencoes.setdefault(caminho, {})[(tipo, alvo_item)] = motivo
@@ -467,19 +477,34 @@ for caminho, piso in alvos:
         # ANCORA CONFERIDA CONTRA O FONTE. Uma isencao cujo texto nao bate deixa de valer, e o
         # relatorio diz o texto encontrado - senao a reancoragem vira adivinhacao.
         fora_de_lugar = []
+        fonte_erro = None
         try:
             fonte = pathlib.Path(caminho).read_text(encoding="utf-8").split("\n")
-        except OSError:
+        except OSError as exc:
             fonte = []
-        for chave, esperado in sorted(ancoradas.items()):
-            n = chave[1].split("->")[0]
-            if not n.isdigit() or not fonte:
-                continue
-            i = int(n)
-            achado = fonte[i - 1].strip() if 1 <= i <= len(fonte) else "<linha inexistente>"
-            if achado != esperado:
-                fora_de_lugar.append(f"{chave[0]} {chave[1]}: ancora esperava {esperado!r}, achou {achado!r}")
+            fonte_erro = str(exc)
+        if fonte_erro is not None and ancoradas:
+            # A6 DO REVISOR. Fonte ilegivel virava `fonte=[]` -> `continue` no laco abaixo -
+            # SILENCIO: a ancora de cada isencao deste arquivo nunca era conferida, e a isencao
+            # voltava a valer so pelo numero de linha, que e exatamente o modo de falha que a
+            # ancora existe para fechar. Reproduzido: `read_text` de caminho relativo fora da
+            # raiz -> OSError -> `fonte=[]` -> `continue`, isencao ancorada passava intocada.
+            # Agora fonte ilegivel com ancora declarada REPROVA (entra em `faltas`), nunca passa.
+            for chave in sorted(ancoradas):
+                fora_de_lugar.append(
+                    f"{chave[0]} {chave[1]}: fonte ilegivel ({fonte_erro}) - ancora nao pode ser conferida"
+                )
                 isentas = {k: v for k, v in isentas.items() if k != chave}
+        else:
+            for chave, esperado in sorted(ancoradas.items()):
+                n = chave[1].split("->")[0]
+                if not n.isdigit():
+                    continue
+                i = int(n)
+                achado = fonte[i - 1].strip() if 1 <= i <= len(fonte) else "<linha inexistente>"
+                if achado != esperado:
+                    fora_de_lugar.append(f"{chave[0]} {chave[1]}: ancora esperava {esperado!r}, achou {achado!r}")
+                    isentas = {k: v for k, v in isentas.items() if k != chave}
         faltas = list(fora_de_lugar)
         for l in missing_lines:
             chave = ("linha", str(l))

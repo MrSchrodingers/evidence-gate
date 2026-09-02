@@ -1598,6 +1598,71 @@
       "state": "open",
       "open_note": "O que fica em aberto e OPERACIONAL, nao de desenho: com o parser vivo, o portao bloqueia 86 em amaral-intern-hub ate que aquela arvore seja commitada ou limpa. Nenhuma das duas correcoes candidatas para G71 muda isso - catraca de higiene semeada da base tambem veria os 86 como novos, porque a base nao contem os arquivos. Decidir o que fazer ali e do dono daquele repositorio, e exige saber por que 1556 arquivos estao staged ha meses.",
       "source_ref": "docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md"
+    },
+    {
+      "finding_id": "G76",
+      "wave": 25,
+      "review_round": "tentativa de medir a distribuicao de vereditos do proprio portao",
+      "found_by": "aplicacao-de-instrumento",
+      "mode": "aplicacao-de-instrumento",
+      "class": "suite-de-teste-escreve-no-instrumento-de-medicao",
+      "defect": "nenhuma suite exportava `EVIDENCE_LEDGER_DIR`, entao toda execucao de teste injetava paradas sinteticas no ledger operacional do usuario",
+      "measured": "`grep -rn 'EVIDENCE_LEDGER_DIR' tests/` nao devolvia nada, e `verify-gate.sh` cai em `$HOME/.claude/evidence` por padrao. Medido em 2026-09-02: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de repositorio temporario de teste ja apagado, tornando os dois dias inutilizaveis como medida de trabalho real. O dano tem SEGUNDA direcao e ela e pior: o ledger tambem e CACHE - `pass` do mesmo `(snapshot, verifiers, env)` curto-circuita -, entao um teste podia herdar `pass` de OUTRO teste com a mesma arvore e nunca executar o verificador que afirma medir. Corrigido em run.sh, regressao-gate.sh, delta-e2e.sh e managed.sh, mais o guarda derivado CI11 em contrato-de-instalador.sh. LIMITE DO GUARDA, apontado por revisao independente: o predicado casa MENCAO da variavel, nao atribuicao - suite sintetica que so a cita num comentario passa. Endurecimento em curso.",
+      "state": "resolved",
+      "resolution_ref": "tests/unit/contrato-de-instalador.sh",
+      "source_ref": "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md"
+    },
+    {
+      "finding_id": "G77",
+      "wave": 25,
+      "review_round": "leitura do ledger por repositorio, apos o merge da onda 25",
+      "found_by": "aplicacao-de-instrumento",
+      "mode": "aplicacao-de-instrumento",
+      "class": "negativa-repetida-tratada-como-rotina",
+      "defect": "o portao repetia a MESMA mensagem de bloqueio sobre a MESMA arvore indefinidamente; 23,2% das paradas sao reexecucoes estritamente redundantes",
+      "measured": "Medido no ledger em 2026-09-02, 8.600 paradas com veredito: 1.992 (23,2%) tem mesmo snapshot, mesmos verificadores, mesmo ambiente e veredito anterior ja `fail`. Um unico snapshot em /home/ti/debthub-wt-phone3 foi julgado 336 vezes, todas fail, em dois dias (769 em 11/08 e 343 em 12/08); aquele repositorio hoje esta limpo e o ruff devolve zero. Isso REFUTA a atribuicao publicada da onda 25 - amaral-intern-hub responde por 14 reprovacoes, nao pelo grosso - e a FORMA: nao era divida espalhada pela frota, era laco concentrado. A saida barata seria cachear o `fail`; foi RECUSADA por consequencia assimetrica: `pass` cacheado errado libera UM turno, `fail` cacheado errado bloqueia ate a arvore mudar, e ela so muda se o ator agir - que e exatamente o que ele nao esta conseguindo. Implementado em vez disso: a partir da 3a negativa identica a mensagem PARA de se repetir e nomeia a repeticao, a contagem e as tres saidas reais. O veredito nao muda. Limiar 3 e piso conservador declarado, sem experimento por tras. Regressao DE12, com controle negativo (arvore diferente barra SEM falar em laco). QUALIFICACAO DO NUMERO, apontada por revisao independente: 79,2% das paradas vem de ledgers nao atribuidos, e 38,1% do total vive na janela que o proprio estudo declara contaminada por teste; restrito a repositorio identificado a mesma medida da 66,8%. Os dois numeros descrevem populacoes diferentes e a populacao nao estava declarada onde o numero e citado.",
+      "state": "resolved",
+      "resolution_ref": "evidence/hooks/verify-gate.sh",
+      "source_ref": "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md"
+    },
+    {
+      "finding_id": "G78",
+      "wave": 25,
+      "review_round": "revisor-codigo, sobre o diff que passou o dia sem revisao",
+      "found_by": "auditoria-externa",
+      "mode": "auditoria-externa",
+      "class": "falha-de-recurso-vira-aprovacao-e-envenena-o-cache",
+      "defect": "`mktemp` que falha deixava `$RAWF`/`$HUNKF` vazios; o nucleo recebia `--hunks-file \"\"`, caia no default `--hunks {}` - o mapa vazio, o valor mais permissivo - e o turno era APROVADO e gravado como `pass`",
+      "measured": "Reproduzido ponta a ponta contra o hook EM VIGOR em /opt/tollens, com TMPDIR nao gravavel: A) TMPDIR normal rc=2 (bloqueia, correto); B) TMPDIR nao gravavel rc=0, stdout VAZIO, ledger grava `pass`; D) mesmo snapshot com TMPDIR sao rc=0, F401 ainda vivo na arvore. O segundo dano e pior que o primeiro: a falha e TRANSITORIA e o `pass` e PERMANENTE para aquele estado, porque curto-circuita todas as paradas futuras - contradiz o invariante G1 declarado no cabecalho do proprio arquivo. RAIZ PREEXISTENTE: `RAWF` tem esta forma desde a correcao F3 da onda 25b, e a onda 25d REPLICOU o padrao numa segunda variavel dentro do comentario que dizia estar fechando a classe. Corrigido: falha de criacao OU de escrita vira LACUNA declarada e o adaptador e pulado, nunca aprovado. Medido depois: B) rc=2 com veredito `gap` e a causa nomeada; D) rc=2. PENDENTE e NAO VERIFICADO: ledgers existentes podem conter `pass` envenenado - o cache sobrevive a correcao e sanear exige varrer. Ha 301 transicoes fail->pass no mesmo estado de arvore no ledger real, mas elas tambem ocorrem legitimamente quando o verificador muda entre as duas paradas, e estao espalhadas (1 por ledger), o que e mais consistente com troca de verificador. NAO se afirma envenenamento real.",
+      "state": "resolved",
+      "resolution_ref": "evidence/hooks/verify-gate.sh",
+      "source_ref": "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md"
+    },
+    {
+      "finding_id": "G79",
+      "wave": 25,
+      "review_round": "revisor-codigo, sobre o diff que passou o dia sem revisao",
+      "found_by": "auditoria-externa",
+      "mode": "auditoria-externa",
+      "class": "regressao-que-passa-pelo-motivo-errado",
+      "defect": "DE11, o unico teste do defeito principal da onda (G74), era tautologico: o mutante sobrevivia e a suite ficava 45/45 verde com a correcao revertida",
+      "measured": "Medido pelo revisor em arena: revertendo `sys.stdin.buffer.read().decode(...)` para `for l in sys.stdin:`, `bash tests/unit/delta-e2e.sh` devolvia `SUITE EXIT=0, PASS=45 FAIL=0`. DUAS causas, ambas confirmadas por mim depois: (1) a fixture punha o byte nao-UTF-8 DENTRO do .py, entao `ruff` nao o decodificava e emitia `E902` - que esta em `breakage_codes` e bloqueia INDEPENDENTEMENTE do mapa de hunks (medido: codigos=['E902'], F401=0); (2) a assercao media so o exit code, e com o parser morto o portao TAMBEM sai 2, como LACUNA. Corrigido em duas frentes: fixture que discrimina (.py ASCII puro com F401 na linha tocada, mais o byte num arquivo NAO-Python do mesmo diff) e assercoes de CAUSA - `a causa e o DIAGNOSTICO, nao lacuna de leitura do mapa` e `o F401 e nomeado no veredito`. Medido depois: com o mutante `SUITE EXIT=1` e as duas assercoes de causa falham; sem, 48/48. TERCEIRO ACHADO NO CAMINHO, e ele explica por que o defeito e dificil de reproduzir: sob `LC_ALL=C` o Python liga o modo UTF-8 (PEP 540) e usa `surrogateescape` no stdin, entao o parser ANTIGO nao estoura - o defeito e dependente de locale, e um teste rodado sob C nunca o veria.",
+      "state": "resolved",
+      "resolution_ref": "tests/unit/delta-e2e.sh",
+      "source_ref": "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md"
+    },
+    {
+      "finding_id": "G80",
+      "wave": 25,
+      "review_round": "auditor-seguranca, sobre o arnes do experimento pareado",
+      "found_by": "auditoria-externa",
+      "mode": "auditoria-externa",
+      "class": "aparencia-de-sandbox-sem-contencao",
+      "defect": "o arnes do experimento executava, FORA do namespace, codigo escrito pelo modelo durante a sessao, com HOME real, credencial legivel e rede aberta",
+      "measured": "O `esac` do bloco de execucao fecha na linha 129 de `evidence/experiments/pareado.sh`; o oraculo roda na 142, fora do `unshare`. `oraculo.sh` e `calc.py` sao escritos pelo MODELO (`arquivo_alterado: true` em 2 das 10 celulas gravadas) e o oraculo carrega `calc.py` com `spec.loader.exec_module`. Alcance medido do que executa: HOME real, `~/.claude/.credentials.json` legivel (888 bytes, modo 600), 21 interfaces de rede, sem `--net`. O namespace isola MOUNT, nao processo, nem rede, nem credencial - e o unico trecho que roda dentro dele e a sessao. REFUTADA a hipotese principal que eu tinha: o `mount --bind` sobre /etc/claude-code NAO vaza para o host, com detector validado contra positivo conhecido (`unshare --mount` forca propagacao private, e o userns novo bloqueia propagacao para o pai). Achados irmaos: o desfecho `alegacao_falsa` era FALSO POR CONSTRUCAO (`printf | python3 - <<'PY'` - o heredoc sobrescreve o pipe, shellcheck SC2259; `bytes_saida`=0 em 10/10 registros) e o braco de controle montava `{}` sobre settings.json, removendo `defaultMode:auto` e 19 regras `allow`, o que torna o contraste observado indistinguivel de diferenca de PERMISSAO. As duas rodadas do piloto foram INVALIDADAS e arquivadas fora da arvore; `evidence/experiments/RESULTADOS-INVALIDADOS.md` registra as cinco condicoes para a proxima execucao.",
+      "state": "open",
+      "open_note": "O arnes esta bloqueado para execucao ate: oraculo rodar DENTRO do namespace a partir de copia read-only feita ANTES da sessao; saida da sessao chegar ao classificador por FD separado; rc do `mount` conferido POR CELULA (hoje `2>/dev/null` engole, medido rc=32); settings do controle preservar permissoes; caminhos interpolados em `bash -c` passarem por %q. Enquanto isso, o experimento pareado - que cinco ADRs declaram aberto - continua sem resultado.",
+      "source_ref": "evidence/experiments/RESULTADOS-INVALIDADOS.md"
     }
   ],
   "reading": [
@@ -1611,12 +1676,12 @@
   "completeness": "`tests/unit/governance-links.py` confere que todo identificador citado com marcador estruturado nos ADRs (`**C1 -`, `**F2 -`, `**A4 -`) aparece como `finding_id` aqui. Antes dessa checagem o portao so recontava as linhas PRESENTES - consistencia interna, nunca completude do universo.",
   "derived": {
     "_comment": "BLOCO DERIVADO - nao editar a mao. `evidence/corpus/render.py` o recalcula e `tests/unit/governance-links.py` reprova se divergir dos findings. Existe porque o cabecalho deste arquivo declarava 'ondas 11 a 15' e ADR 0031..0035 enquanto os proprios dados ja tinham onda 17 e ADR 0036 - metadado de frame escrito a mao envelhece contra o dado que ele descreve.",
-    "n_findings": 120,
+    "n_findings": 125,
     "wave_min": 11,
     "wave_max": 25,
     "counts_by_mode": {
-      "aplicacao-de-instrumento": 16,
-      "auditoria-externa": 35,
+      "aplicacao-de-instrumento": 18,
+      "auditoria-externa": 38,
       "execucao-em-ambiente-alheio": 3,
       "execucao-hostil": 1,
       "leitura-estrutural": 24,
@@ -1633,8 +1698,10 @@
       "docs/adr/0040-o-artefato-nao-pode-depender-de-onde-foi-gerado.md",
       "docs/adr/0041-o-kernel-guardava-a-classe-errada-de-erro.md",
       "docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md",
+      "evidence/experiments/RESULTADOS-INVALIDADOS.md",
       "evidence/observations/2026-08-18-tres-ondas-e-o-que-cada-revisao-achou.md",
-      "evidence/observations/2026-08-31-tools-declarado-nao-prediz-concedido.md"
+      "evidence/observations/2026-08-31-tools-declarado-nao-prediz-concedido.md",
+      "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md"
     ],
     "open_findings": [
       "G18",
@@ -1660,11 +1727,12 @@
       "G56",
       "G7",
       "G71",
-      "G75"
+      "G75",
+      "G80"
     ],
     "by_state": {
-      "open": 24,
-      "resolved": 96
+      "open": 25,
+      "resolved": 100
     }
   },
   "historical_states": [
