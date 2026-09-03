@@ -232,7 +232,28 @@ chk "  arquivo de hunks INEXISTENTE e NAO VERIFICADO" \
 chk "  --hunks-file vence --hunks quando os dois vem" \
     "$(python3 "$LD" --raw-file "$T_LD/hig8.json" --map "$LD_MAPA" --strip-prefix '/x/' --hunks '{}' --hunks-file "$T_LD/hunks.json" --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 1
 
-EXPECTED=58
+echo "== LD17. caminho de arquivo VAZIO e NAO VERIFICADO, nao default permissivo (G78) =="
+# G78 produzia exatamente isto: `mktemp` falho deixava a variavel vazia, o executor passava
+# `--hunks-file ""`, o nucleo caia no default `--hunks {}` - o mapa vazio, o valor mais permissivo -
+# e o turno era APROVADO. Um subagente "alinhou" os dois predicados na direcao ERRADA (vazio =
+# nao forneceu = aprova), o que tornaria essa porta mais facil de alcancar; a simetria certa e
+# pela SEVERIDADE. `default=None` separa "nao passou a flag" de "passou caminho vazio".
+chk "--hunks-file com caminho vazio: NAO VERIFICADO" \
+    "$(python3 "$LD" --raw-file "$T_LD/hig.json" --map "$LD_MAPA" --strip-prefix '/x/' --hunks-file '' --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 2
+chk "  e so com espaco tambem" \
+    "$(python3 "$LD" --raw-file "$T_LD/hig.json" --map "$LD_MAPA" --strip-prefix '/x/' --hunks-file ' ' --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 2
+chk "--raw-file com caminho vazio: NAO VERIFICADO" \
+    "$(python3 "$LD" --raw-file '' --map "$LD_MAPA" --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 2
+chk "  e so com espaco tambem" \
+    "$(python3 "$LD" --raw-file ' ' --map "$LD_MAPA" --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 2
+# CONTROLE NEGATIVO: NAO passar a flag continua sendo legitimo, senao o caso mediria "reprova
+# sempre" em vez de "reprova caminho vazio".
+chk "  CONTROLE: sem a flag, o programa segue funcionando" \
+    "$(python3 "$LD" --diagnostics '[]' --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 0
+chk "  CONTROLE: com arquivo de verdade, julga normalmente" \
+    "$(python3 "$LD" --raw-file "$T_LD/hig8.json" --map "$LD_MAPA" --strip-prefix '/x/' --hunks-file "$T_LD/hunks.json" --breakage-codes "$QUEBRA" >/dev/null 2>&1; echo $?)" 1
+
+EXPECTED=64
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

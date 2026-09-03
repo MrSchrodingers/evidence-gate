@@ -154,6 +154,9 @@ CHECK=0
 # construcao (`288->287`, isento na CAMADA 2 com a razao). A CAMADA 2 o isenta de precisar de
 # teste; a CAMADA 1 continua contando no denominador, entao o percentual cai sem que exista teste
 # capaz de subi-lo. Medido depois de LD15 cobrir todo o resto do bloco: 98.90.
+# REAPERTADO para 99.0 na onda 25d: LD17 cobre as guardas de caminho VAZIO de `--hunks-file` e
+# `--raw-file` (G78), e o medido subiu para 99.01. Reaperto explicito, como a CAMADA 1 exige -
+# igualdade exata existe justamente para que subida de cobertura nao passe em silencio.
 ALVOS="${COBERTURA_ALVOS:-$(cat <<'EOF'
 evidence/probes/github-ruleset.py:86.0
 evidence/validate-claims.py:81.4
@@ -162,7 +165,7 @@ evidence/runtime-probes/declared-capabilities.py:92.6
 orchestration/schedule.py:89.3
 evidence/corpus/render.py:93.6
 evidence/validate-adapters.py:69.3
-evidence/lint-delta.py:98.9
+evidence/lint-delta.py:99.0
 EOF
 )}"
 
@@ -182,6 +185,8 @@ EOF
 RAIZES="${COBERTURA_RAIZES:-evidence orchestration execution}"
 
 EXCLUSOES="${COBERTURA_EXCLUSOES:-$(cat <<'EOF'
+evidence/experiments/pareado.sh|arnes de EXPERIMENTO, e esta BLOQUEADO para execucao (G80): o auditor mediu que ele roda o oraculo FORA do namespace e carrega, com exec_module, codigo escrito pelo modelo, com HOME real, credencial legivel e 21 interfaces de rede. Medir cobertura de um arnes que nao pode rodar seria numero sobre codigo morto; e promove-lo a ALVO obrigaria exercita-lo, que e justamente o que esta proibido ate as cinco condicoes de evidence/experiments/RESULTADOS-INVALIDADOS.md serem satisfeitas.
+evidence/probes/ledger-atribuicao.py|probe de LEITURA do ledger, sem ramo que decida veredito de portao: ele agrega e imprime. O piso de decisao existe para codigo cuja falha silenciosa aprova algo; aqui a falha aparece como tabela errada, que o operador ve. Nao e isencao permanente - se algum ramo dele passar a alimentar decisao (por exemplo, alimentar o proprio status.generated.md), vira ALVO com piso medido.
 orchestration/render.py|nao avaliado nesta tarefa: o piso de cobertura de decisao (ADR 0028) fechou a folga do mecanismo ja existente; promover um executavel novo a ALVO exige medir o piso alcancavel dele, investigacao propria, fora do escopo desta correcao pontual
 execution/document-tools/doctool.sh|script shell - coverage.py (branch coverage, esta ferramenta) so mede Python; fora do dialeto medido aqui
 execution/document-tools/probe_sheet.py|nao avaliado nesta tarefa - mesma razao de orchestration/render.py
@@ -275,8 +280,8 @@ orchestration/schedule.py|ramo|406->408|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->409|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->410|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|436->-1|heranca-piso-absoluto-2026-08-11
-evidence/lint-delta.py|ramo|323->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.|if __name__ == "__main__":
-evidence/lint-delta.py|ramo|304->303|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.|for raiz in raizes:
+evidence/lint-delta.py|ramo|345->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.|if __name__ == "__main__":
+evidence/lint-delta.py|ramo|326->325|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.|for raiz in raizes:
 EOF
 )}"
 

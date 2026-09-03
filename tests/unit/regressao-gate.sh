@@ -165,7 +165,12 @@ echo "conteudo" > alvo.fk
 rm -f "$HOME/.claude/evidence"/*.jsonl   # isola o ledger deste caso
 SALVO2="$CLAUDE_ADAPTERS_DIR"; export CLAUDE_ADAPTERS_DIR="$ADT"; export PATH="$FAKEBIN:$PATH"
 rc=$(gate false); chk "primeira execucao aprova" "$rc" 0
-LED="$HOME/.claude/evidence"; ENV1=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
+# G76: a suite passou a isolar o ledger (`EVIDENCE_LEDGER_DIR`), e este caso continuou lendo o
+# ledger REAL do operador - lugar onde o portao ja nao escreve. Resultado: `ENV1 == ENV2` por
+# ler dado velho, e a garantia G11 ("trocar o binario no MESMO path invalida o cache") passou a
+# reprovar sem que nada em `verify-gate.sh` tivesse mudado. Isolar o instrumento sem reapontar
+# quem o le e a mesma classe de defeito que a onda inteira persegue.
+LED="${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}"; ENV1=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
 # mesmo caminho, binario DIFERENTE (versao nova)
 printf '#!/bin/sh\n[ "$1" = "--version" ] && { echo "fakelint 2.0"; exit 0; }\nexit 1\n' > "$FAKEBIN/fakelint"
 chmod +x "$FAKEBIN/fakelint"
