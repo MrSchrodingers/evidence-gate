@@ -337,7 +337,33 @@ chk "  e o ledger NAO registra pass" \
 # ficou envenenado no cache.
 chk "  CONTROLE: mesmo snapshot com TMPDIR sao volta a barrar" "$(gate)" 2
 
-EXPECTED=53
+echo "== DE14. untracked ANTIGO nao e trabalho do turno (G82) =="
+# MEDIDO em /var/www/amaral-intern-hub, 2026-09-03: 400 arquivos untracked em `spokes/jusgrok/`
+# com mtime de 2026-07-17 - 48 dias - e o portao acusava 79 achados de higiene deles como sendo
+# do turno. A regra B1 dava a todo arquivo nao rastreado a faixa `[1, 10^9]`, com a premissa de
+# que `Write`/`Edit` nao indexam. A premissa cobre o caso comum e e FALSA no geral.
+# O discriminante e a hora da parada ANTERIOR, que o portao ja tem no ledger.
+repo d14
+mkdir -p "$EVIDENCE_LEDGER_DIR"
+_k="$(printf '%s' "$PWD" | sha256sum | cut -c1-32)"
+printf '{"ts":"%s","snapshot":"x","verifiers":"y","env":"z","verdict":"fail","detail":"parada anterior simulada"}\n' \
+  "$(date -u -d "@$(( $(date +%s) - 3600 ))" '+%Y-%m-%dT%H:%M:%SZ')" > "$EVIDENCE_LEDGER_DIR/$_k.jsonl"
+printf 'import os\n' > antigo.py; touch -d '2026-07-17 18:16' antigo.py
+chk "untracked ANTIGO sozinho: NAO bloqueia" "$(gate)" 0
+chk "  e a exclusao e DECLARADA, nao silenciosa" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'NAO RASTREADO E ANTERIOR AO TURNO')" 1
+# CONTROLE NEGATIVO, e ele e o que separa correcao de afrouxamento: arquivo untracked escrito
+# AGORA continua sendo do turno e continua bloqueando.
+printf 'import sys\n' > agora.py
+chk "  CONTROLE: untracked escrito AGORA bloqueia" "$(gate)" 2
+chk "  e quem bloqueia e o NOVO, nao o antigo" \
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'agora\.py')" 1
+# E a QUEBRA de arquivo antigo continua julgada - a exclusao e so de higiene.
+rm -f agora.py
+printf 'def f(:\n' > quebrado_antigo.py; touch -d '2026-07-17 18:16' quebrado_antigo.py
+chk "  CONTROLE: QUEBRA em untracked antigo AINDA bloqueia" "$(gate)" 2
+
+EXPECTED=58
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

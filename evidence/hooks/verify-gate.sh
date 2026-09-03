@@ -481,11 +481,47 @@ for a in "${APLICAVEIS[@]}"; do
     #       pipeline (ramo B1, desta onda) nao tinha, entao arquivo novo com nome nao-ASCII
     #       entrava como `"acentua\303\247.py"` e a chave do hunk nunca casava o diagnostico.
     #       Medido: nome acentuado EXIT=0, o mesmo arquivo em ASCII EXIT=2.
+    # G82: `untracked` NAO E "criado neste turno". A regra B1 dava a todo arquivo nao rastreado a
+    # faixa `[1, 10^9]` - o arquivo inteiro como trabalho do turno - com a premissa de que `Write`
+    # e `Edit` nao indexam, entao arquivo novo aparece assim. A premissa cobre o caso comum e e
+    # FALSA no geral: `untracked` significa "o git nao rastreia", e nada mais.
+    #
+    # MEDIDO em /var/www/amaral-intern-hub, 2026-09-03: 400 arquivos untracked em
+    # `spokes/jusgrok/`, TODOS com mtime de 2026-07-17 - 48 dias. O portao acusava 79 achados de
+    # higiene deles como sendo do turno, num turno cujo trabalho real (PR #150) estava noutros 8
+    # arquivos que passavam limpo. O ator escalou corretamente e o portao seguiu barrando.
+    #
+    # DISCRIMINANTE, e ele usa dado que o portao JA TEM: a hora da parada anterior neste
+    # repositorio, gravada no ledger. Arquivo cujo mtime e ANTERIOR a ela nao pode ter sido
+    # escrito neste turno. Nao e heuristica de nome nem de diretorio - e ordem temporal.
+    #
+    # LIMITE DECLARADO: na PRIMEIRA parada de um repositorio nao ha referencia, e ai o
+    # comportamento antigo vale (tudo untracked conta como do turno). Fail-closed: erra para o
+    # lado de julgar demais, que e ruido, e nao para o de aprovar em silencio.
+    # SEGUNDO LIMITE: `mtime` e falsificavel pelo ator governado (`touch`). Isto NAO e controle de
+    # seguranca - e correcao de ATRIBUICAO. Quebra por codigo declarado continua sendo julgada na
+    # arvore inteira contra a catraca, sem depender de hunk nenhum, entao um arquivo antigo que
+    # NAO PARSEIA segue bloqueando.
+    REF_EPOCH=""
+    _ref_ts="$(tail -1 "$LEDGER" 2>/dev/null | jq -r '.ts // empty' 2>/dev/null || true)"
+    [ -n "$_ref_ts" ] && REF_EPOCH="$(date -d "$_ref_ts" +%s 2>/dev/null || true)"
+    UNTRACKED_LISTA="$(cd "$ROOT" && git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null \
+      | while IFS= read -r _f; do
+          [ -n "$_f" ] || continue
+          if [ -n "$REF_EPOCH" ] && [ -f "$ROOT/$_f" ] \
+             && [ "$(stat -c %Y "$ROOT/$_f" 2>/dev/null || echo 0)" -lt "$REF_EPOCH" ]; then
+            printf 'PREEXISTENTE %s\n' "$_f"
+          else
+            printf 'UNTRACKED %s\n' "$_f"
+          fi
+        done)"
+    N_PREEXISTENTE="$(printf '%s\n' "$UNTRACKED_LISTA" | grep -c '^PREEXISTENTE ' || true)"
+    case "$N_PREEXISTENTE" in ''|*[!0-9]*) N_PREEXISTENTE=0 ;; esac
     HUNKS="$(cd "$ROOT" && { git -c core.quotePath=false diff -U0 \
                --output-indicator-new="$(printf '\001')" \
                --output-indicator-old="$(printf '\002')" \
                --output-indicator-context="$(printf '\003')" HEAD 2>/dev/null; \
-             git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null | sed 's|^|UNTRACKED |'; } | python3 -c '
+             printf '%s\n' "$UNTRACKED_LISTA"; } | python3 -c '
 import sys,re,json,collections
 h=collections.defaultdict(list); f=None
 # G74. `for l in sys.stdin` decodifica UTF-8 e MORRE em byte que nao seja - e diff carrega o
@@ -499,8 +535,13 @@ h=collections.defaultdict(list); f=None
 # ASCII, e o conteudo da linha nao e lido por este parser.
 for l in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n"):
     if l.startswith("UNTRACKED "):
-        # arquivo NOVO nao rastreado: todas as linhas sao do turno, entao a faixa e total
+        # arquivo nao rastreado ESCRITO NESTE TURNO: todas as linhas sao do turno, faixa total.
         h[l[10:].strip()].append([1, 10**9])
+    elif l.startswith("PREEXISTENTE "):
+        # G82: nao rastreado, mas com mtime ANTERIOR a parada anterior deste repositorio. NAO
+        # recebe faixa: a higiene dele fica fora de hunk, como a de qualquer arquivo que o turno
+        # nao tocou. Quebra continua julgada na arvore contra a catraca, sem depender de hunk.
+        pass
     elif l.startswith("+++ b/"): f=l[6:].strip()
     elif l.startswith("+++ "): f=None   # forma citada nao reconhecida: melhor nenhum arquivo que o ANTERIOR
     elif l.startswith("@@") and f:
@@ -517,6 +558,15 @@ print(json.dumps(dict(h)))' 2>/dev/null)"
       HUNKS='{}'
       LACUNAS="$LACUNAS
   - $ID: o mapa de linhas tocadas NAO pode ser lido (parser de diff falhou). Higiene NAO foi julgada neste turno - so quebra. Escopo de delta perdido, nao vazio."
+    fi
+    # G82: A EXCLUSAO POR IDADE NUNCA CALA. A licao de G68 vale igual aqui: exclusao que o
+    # operador nao ve e indistinguivel de buraco. Vai para stderr em toda execucao em que agir,
+    # com o numero e a referencia temporal usada.
+    if [ "$N_PREEXISTENTE" -gt 0 ]; then
+      { printf 'NAO RASTREADO E ANTERIOR AO TURNO: %s arquivo(s) tiveram a higiene EXCLUIDA do julgamento.\n' "$N_PREEXISTENTE"
+        printf '  Referencia: a parada anterior deste repositorio, %s.\n' "$_ref_ts"
+        printf '  mtime anterior a ela = nao pode ter sido escrito neste turno. Quebra desses arquivos CONTINUA sendo julgada.\n'
+      } >&2
     fi
     # G_VAZIO NO ESCOPO DELTA. A mesma armadilha das outras duas formas, e ela e PIOR aqui:
     # um analisador sobre arvore sem nenhum arquivo do ecossistema devolve LISTA VAZIA, e lista
