@@ -88,6 +88,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 ACTIVE="$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)"
+SESSAO="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 ADAPTERS="${CLAUDE_ADAPTERS_DIR:-$(cd "$HERE/../../execution/adapters/code" 2>/dev/null && pwd)}"
@@ -384,18 +385,47 @@ fi
 # entre processos) pode conter o trecho procurado sem ser um JSON valido, e entrava na contagem
 # como parada real. `jq -R 'fromjson?'` descarta em silencio o que nao parseia como objeto.
 TENTATIVAS_IDENTICAS=0
+TENTATIVAS_NA_SESSAO=0   # `set -u`: as DUAS precisam existir antes do `if`
 if [ -n "$IDENTICAS" ]; then
+  # C2 DO REVISOR, e o defeito era grave: a contagem era CUMULATIVA no ledger, que e espaco de
+  # escrita do ator governado. Duas consequencias MEDIDAS pelo revisor nesta maquina: (i) anexar
+  # seis linhas ao ledger desligava o bloqueio - antes de G81 forjar o ledger mudava so o TEXTO,
+  # depois passou a mudar o VEREDITO; (ii) 4 repositorios ja acumulavam 6+ falhas identicas, entao
+  # uma sessao NOVA recebia o portao nao-bloqueante na PRIMEIRA parada, sem nunca ter sido barrada.
+  # A contagem passa a ser POR SESSAO: `session_id` vem do EVENTO, nao do arquivo. Continua
+  # forjavel dentro da sessao, mas a escotilha deixa de ser herdada por quem nunca viu um bloqueio,
+  # e volta a exigir que o ator de fato tenha batido no portao seis vezes AQUI.
+  # DOIS CONTADORES, com niveis de confianca DIFERENTES, e misturar os dois foi erro meu:
+  #
+  #   TENTATIVAS_IDENTICAS - CUMULATIVO no ledger. Alimenta so a MENSAGEM de laco (G77). Forjar
+  #     o ledger aqui deixa o aviso mais verboso e nada mais: nao muda veredito. Vale contar tudo,
+  #     inclusive paradas de sessoes anteriores, porque a informacao "esta arvore ja bateu N vezes
+  #     neste portao" e verdadeira e util independentemente de quem bateu.
+  #
+  #   TENTATIVAS_NA_SESSAO - so paradas com o `session_id` DESTE evento. Alimenta a ESCOTILHA
+  #     (G81), que muda o VEREDITO. C2 do revisor mediu as duas consequencias de usar o cumulativo
+  #     aqui: anexar seis linhas ao ledger desligava o bloqueio, e 4 repositorios desta maquina ja
+  #     acumulavam 6+, entao sessao NOVA recebia o portao nao-bloqueante na PRIMEIRA parada.
+  #     Sem `session_id` no evento a contagem fica 0 e a escotilha NAO abre - fail-closed: o
+  #     portao continua barrando, que e o comportamento anterior a G81.
   TENTATIVAS_IDENTICAS="$(printf '%s\n' "$IDENTICAS" \
     | jq -Rc 'fromjson? | select(type=="object") | select(.verdict=="fail" or .verdict=="gap") | 1' 2>/dev/null \
     | wc -l | tr -d ' ')"
+  TENTATIVAS_NA_SESSAO="$(printf '%s\n' "$IDENTICAS" \
+    | jq -Rc --arg n "${SESSAO:-}" 'fromjson? | select(type=="object") | select(.verdict=="fail" or .verdict=="gap") | select(($n != "") and (.session == $n)) | 1' 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  case "$TENTATIVAS_NA_SESSAO" in ''|*[!0-9]*) TENTATIVAS_NA_SESSAO=0 ;; esac
 fi
 case "$TENTATIVAS_IDENTICAS" in ''|*[!0-9]*) TENTATIVAS_IDENTICAS=0 ;; esac
 # veredito anterior `fail` ou `gap` NAO e reutilizado: reexecuta. Nunca vira verde por cache.
 
 registra(){  # $1=verdict $2=detalhe
+  # C2 DO REVISOR: `session` entra no registro para que a escotilha de G81 possa contar paradas
+  # DESTA sessao em vez da contagem CUMULATIVA do ledger. Registros antigos nao tem o campo e sao
+  # tratados como de outra sessao - conservador, porque so encurta a contagem.
   jq -cn --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" --arg s "$SNAPSHOT" \
-         --arg v "$VERIFIERS" --arg e "$ENVD" --arg d "$1" --arg m "$2" \
-         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m}' >> "$LEDGER" 2>/dev/null || true
+         --arg v "$VERIFIERS" --arg e "$ENVD" --arg d "$1" --arg m "$2" --arg n "${SESSAO:-}" \
+         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m,session:$n}' >> "$LEDGER" 2>/dev/null || true
 }
 
 # --- G5: execucao por command + args, sem shell ---
@@ -502,14 +532,44 @@ for a in "${APLICAVEIS[@]}"; do
     # seguranca - e correcao de ATRIBUICAO. Quebra por codigo declarado continua sendo julgada na
     # arvore inteira contra a catraca, sem depender de hunk nenhum, entao um arquivo antigo que
     # NAO PARSEIA segue bloqueando.
+    # C1 DO REVISOR, e a primeira correcao dele ainda estava errada pela MESMA raiz.
+    #
+    # Tentativa 1: `tail -1` do ledger (parada ANTERIOR). Medido: arquivo escrito NESTE turno,
+    # parada 1 rc=2 com o F401 citado, parada 2 rc=0 com o F401 sumido, ledger `fail pass` - e o
+    # `pass` fica em CACHE PERMANENTE. Nao corrigia atribuicao: desligava o ramo B1 na 2a parada.
+    # Tentativa 2: `head -1` (PRIMEIRA parada). Medido: identico. rc=2, rc=0, rc=0.
+    #
+    # A RAIZ e que QUALQUER referencia tirada do ledger e posterior a escrita, porque o portao so
+    # roda em PARADAS - e a parada acontece depois de o arquivo existir. Nao ha `head`/`tail` que
+    # resolva: a fonte esta errada.
+    #
+    # A referencia precisa PRECEDER o turno, e o evento traz uma: `transcript_path`. O arquivo de
+    # transcrito nasce com a SESSAO. Medido nesta maquina: `stat -c %W` devolve 1788390926
+    # (2026-09-02 20:15) enquanto mtime e agora - birth time utilizavel.
+    # Semantica resultante: "escrito antes desta SESSAO comecar" e WIP herdado; escrito durante a
+    # sessao e trabalho dela, e continua julgado em toda parada. E a leitura que o caso motivador
+    # pede (jusgrok, 48 dias) sem anular B1 (arquivo novo do turno).
+    #
+    # SEM birth time (filesystem que nao suporta, ou transcrito ausente) a exclusao NAO AGE e tudo
+    # untracked volta a ser julgado. Fail-closed: erra para julgar demais, nunca para aprovar.
     REF_EPOCH=""
-    _ref_ts="$(tail -1 "$LEDGER" 2>/dev/null | jq -r '.ts // empty' 2>/dev/null || true)"
-    [ -n "$_ref_ts" ] && REF_EPOCH="$(date -d "$_ref_ts" +%s 2>/dev/null || true)"
+    _ref_ts=""
+    _tp="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+    if [ -n "$_tp" ] && [ -f "$_tp" ]; then
+      _w="$(stat -c %W "$_tp" 2>/dev/null || echo 0)"
+      case "$_w" in ''|*[!0-9]*) _w=0 ;; esac
+      if [ "$_w" -gt 0 ]; then
+        REF_EPOCH="$_w"
+        _ref_ts="inicio da sessao ($(date -u -d "@$_w" '+%Y-%m-%dT%H:%M:%SZ'))"
+      fi
+    fi
+    # A2 DO REVISOR: referencia no futuro (relogio torto) desligaria TODA a higiene de untracked.
+    if [ -n "$REF_EPOCH" ] && [ "$REF_EPOCH" -gt "$(date +%s)" ]; then REF_EPOCH=""; _ref_ts=""; fi
     UNTRACKED_LISTA="$(cd "$ROOT" && git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null \
       | while IFS= read -r _f; do
           [ -n "$_f" ] || continue
           if [ -n "$REF_EPOCH" ] && [ -f "$ROOT/$_f" ] \
-             && [ "$(stat -c %Y "$ROOT/$_f" 2>/dev/null || echo 0)" -lt "$REF_EPOCH" ]; then
+             && [ "$(stat -c %Y "$ROOT/$_f" 2>/dev/null || echo 9999999999)" -lt "$REF_EPOCH" ]; then
             printf 'PREEXISTENTE %s\n' "$_f"
           else
             printf 'UNTRACKED %s\n' "$_f"
@@ -874,16 +934,31 @@ NAO tente uma quarta variacao da mesma correcao sem antes dizer ao operador o qu
   # perceber, mais 3 para escalar. Nao ha experimento por tras do numero; e piso conservador, e
   # trocar exige medir.
   LIMITE_ESCALADA=6
-  if [ "$TENTATIVAS_IDENTICAS" -ge "$LIMITE_ESCALADA" ]; then
-    aviso "GATE - VERIFICACAO FALHOU (nao bloqueante: $TENTATIVAS_IDENTICAS paradas identicas).
-Verificadores aplicados:$ECOS
-Reprovaram:$FALHAS
-$SAIDA
----
-Estado: NOT_VERIFIED. O veredito continua NEGATIVO - NAO declare corrigido, resolvido nem verde.
-O portao parou de BLOQUEAR porque este e o estado identico numero $TENTATIVAS_IDENTICAS: continuar
-barrando nao adiciona informacao e impede voce de entregar a decisao ao operador, que e o que a
-mensagem anterior mandou fazer. Entregue o diagnostico acima e PARE.$AVISO_REPO$LACO"
+  if [ "$TENTATIVAS_NA_SESSAO" -ge "$LIMITE_ESCALADA" ]; then
+    # C3 DO REVISOR + MEDIDO EM PRODUCAO: a escalada precisa sair SEM `additionalContext`.
+    #
+    # A primeira versao usava `aviso`, que sai 0 mas emite `additionalContext`. Medido na sessao
+    # do operador em /var/www/amaral-intern-hub: a mensagem dizia "nao bloqueante" e o turno NAO
+    # terminava - as paradas foram de 37 a 59 e o runtime precisou intervir com o teto dele
+    # ("A hook blocked the turn from ending 9 consecutive times"). `additionalContext` num `Stop`
+    # NAO e canal passivo: ele REALIMENTA o modelo e o turno reinicia. O revisor tinha marcado
+    # isto como NAO VERIFICADO por nao conseguir instrumentar o runtime; o log do operador foi a
+    # sonda, e a resposta e que re-prompta.
+    #
+    # Para o turno ENCERRAR de verdade: `exit 0` e SO stderr. O ADR 0021 diz que stderr com
+    # exit 0 e INERTE - nao chega ao modelo -, e e exatamente por isso que serve aqui: o modelo
+    # ja recebeu o diagnostico nas SEIS paradas anteriores, e o que falta e o turno acabar para
+    # o humano decidir. O operador le stderr no transcrito.
+    { printf 'GATE - VERIFICACAO FALHOU (NAO BLOQUEANTE: %s paradas identicas nesta sessao).\n' "$TENTATIVAS_NA_SESSAO"
+      printf 'Verificadores aplicados:%s\nReprovaram:%s\n' "$ECOS" "$FALHAS"
+      printf '%s\n' "$SAIDA"
+      printf -- '---\n'
+      printf 'Estado: NOT_VERIFIED. O veredito continua NEGATIVO e o defeito continua na arvore.\n'
+      printf 'O portao parou de bloquear na %sa parada identica desta sessao para o turno poder\n' "$TENTATIVAS_NA_SESSAO"
+      printf 'ENCERRAR - o ator ja recebeu este diagnostico nas paradas anteriores e nao conseguiu\n'
+      printf 'agir sobre ele. A decisao e do operador.%s\n' "$AVISO_REPO"
+    } >&2
+    exit 0
   fi
   reporta "GATE - VERIFICACAO FALHOU. O snapshot NAO e um candidato valido.
 Verificadores aplicados:$ECOS

@@ -343,27 +343,48 @@ echo "== DE14. untracked ANTIGO nao e trabalho do turno (G82) =="
 # do turno. A regra B1 dava a todo arquivo nao rastreado a faixa `[1, 10^9]`, com a premissa de
 # que `Write`/`Edit` nao indexam. A premissa cobre o caso comum e e FALSA no geral.
 # O discriminante e a hora da parada ANTERIOR, que o portao ja tem no ledger.
+# C1 DO REVISOR mudou a FONTE da referencia: o ledger nao serve, porque toda parada acontece
+# DEPOIS da escrita - `tail -1` e `head -1` falham igual. A referencia e o INICIO DA SESSAO, via
+# `birth time` do `transcript_path` que o evento entrega. O teste passa a construir isso.
 repo d14
-mkdir -p "$EVIDENCE_LEDGER_DIR"
-_k="$(printf '%s' "$PWD" | sha256sum | cut -c1-32)"
-printf '{"ts":"%s","snapshot":"x","verifiers":"y","env":"z","verdict":"fail","detail":"parada anterior simulada"}\n' \
-  "$(date -u -d "@$(( $(date +%s) - 3600 ))" '+%Y-%m-%dT%H:%M:%SZ')" > "$EVIDENCE_LEDGER_DIR/$_k.jsonl"
+_tr="$TMP/transcript-d14.jsonl"; : > "$_tr"    # nasce AGORA = inicio da sessao simulado
+gate_tr(){ printf '{"transcript_path":"%s"}' "$_tr" | timeout 120 bash "$GATE" >"$TMP/o" 2>"$TMP/e"; echo $?; }
 printf 'import os\n' > antigo.py; touch -d '2026-07-17 18:16' antigo.py
-chk "untracked ANTIGO sozinho: NAO bloqueia" "$(gate)" 0
+chk "untracked ANTIGO sozinho: NAO bloqueia" "$(gate_tr)" 0
 chk "  e a exclusao e DECLARADA, nao silenciosa" \
     "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'NAO RASTREADO E ANTERIOR AO TURNO')" 1
 # CONTROLE NEGATIVO, e ele e o que separa correcao de afrouxamento: arquivo untracked escrito
 # AGORA continua sendo do turno e continua bloqueando.
 printf 'import sys\n' > agora.py
-chk "  CONTROLE: untracked escrito AGORA bloqueia" "$(gate)" 2
+chk "  CONTROLE: untracked escrito AGORA bloqueia" "$(gate_tr)" 2
 chk "  e quem bloqueia e o NOVO, nao o antigo" \
     "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'agora\.py')" 1
 # E a QUEBRA de arquivo antigo continua julgada - a exclusao e so de higiene.
 rm -f agora.py
 printf 'def f(:\n' > quebrado_antigo.py; touch -d '2026-07-17 18:16' quebrado_antigo.py
-chk "  CONTROLE: QUEBRA em untracked antigo AINDA bloqueia" "$(gate)" 2
+chk "  CONTROLE: QUEBRA em untracked antigo AINDA bloqueia" "$(gate_tr)" 2
 
-EXPECTED=58
+echo "== DE15. escalada: para de bloquear, mas NAO cala e NAO e herdada (G81/C2/C3/C4) =="
+# C4 DO REVISOR: G81 - a unica mudanca da onda que altera SE o portao bloqueia - nao tinha uma
+# assercao sequer. Mutante `LIMITE_ESCALADA=999999` sobrevivia com delta-e2e 58/58 e
+# regressao-gate 65/65. DE12 para na 4a parada e nunca alcanca o limiar 6.
+repo d15
+printf 'def f():\n    return jamais\n' > q.py; git add -A
+_sess="sessao-de-teste-$$"
+gate_s(){ printf '{"session_id":"%s"}' "$1" | timeout 120 bash "$GATE" >"$TMP/o" 2>"$TMP/e"; echo $?; }
+for _i in 1 2 3 4 5 6; do chk "  parada $_i BLOQUEIA" "$(gate_s "$_sess")" 2; done
+chk "  7a parada NAO bloqueia (escotilha)" "$(gate_s "$_sess")" 0
+# C3: o operador e o destinatario declarado - stderr NAO pode sair vazio.
+chk "  e o operador recebe o veredito em stderr" \
+    "$(grep -c 'NAO BLOQUEANTE' "$TMP/e")" 1
+chk "  com o estado NEGATIVO explicito" \
+    "$(grep -c 'NOT_VERIFIED' "$TMP/e")" 1
+# C2: a escotilha NAO pode ser herdada por uma sessao que nunca foi bloqueada.
+chk "  CONTROLE: sessao NOVA volta a bloquear na 1a parada" "$(gate_s "sessao-outra-$$")" 2
+chk "  e a sessao nova NAO ve a escotilha" \
+    "$(grep -c 'NAO BLOQUEANTE' "$TMP/e")" 0
+
+EXPECTED=69
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1
