@@ -803,6 +803,38 @@ resultado. As saidas REAIS, e sao estas:
      reportado ao operador - nao contornado.
 NAO tente uma quarta variacao da mesma correcao sem antes dizer ao operador o que esta travando."
   fi
+  # G81: DEPOIS DE ESCALAR, BLOQUEAR DE NOVO E DEADLOCK, NAO PORTAO.
+  #
+  # O bloco $LACO acima manda o ator PARAR de tentar variacoes e dizer ao operador o que trava.
+  # Um ator que obedece nao tem mais nada a fazer no turno - e o portao bloqueava a parada dele
+  # assim mesmo. A mensagem exigia uma acao que ela propria punia.
+  #
+  # MEDIDO em /var/www/amaral-intern-hub, 2026-09-03: 107 paradas no dia, 3 estados distintos,
+  # 91 no MESMO estado. O ator tinha escalado corretamente (os 79 achados sao higiene de WIP
+  # untracked de OUTRO desenvolvedor, com mtime de 2026-07-17 - 48 dias) e se recusava, tambem
+  # corretamente, a editar trabalho alheio. O runtime precisou intervir com o proprio teto
+  # ("A hook blocked the turn from ending 9 consecutive times - overriding").
+  #
+  # A partir do LIMITE DE ESCALADA o veredito continua NEGATIVO e o diagnostico continua inteiro,
+  # mas deixa de BLOQUEAR: vira additionalContext. O que o portao existe para impedir e o ator
+  # declarar sucesso falso - e isso o texto continua impedindo, porque ele chega igual. O que ele
+  # nao pode fazer e impedir o ator de ENTREGAR A DECISAO ao humano.
+  #
+  # O limite e 6, o dobro do limiar de laco (3), e a escolha e declarada: 3 paradas para o ator
+  # perceber, mais 3 para escalar. Nao ha experimento por tras do numero; e piso conservador, e
+  # trocar exige medir.
+  LIMITE_ESCALADA=6
+  if [ "$TENTATIVAS_IDENTICAS" -ge "$LIMITE_ESCALADA" ]; then
+    aviso "GATE - VERIFICACAO FALHOU (nao bloqueante: $TENTATIVAS_IDENTICAS paradas identicas).
+Verificadores aplicados:$ECOS
+Reprovaram:$FALHAS
+$SAIDA
+---
+Estado: NOT_VERIFIED. O veredito continua NEGATIVO - NAO declare corrigido, resolvido nem verde.
+O portao parou de BLOQUEAR porque este e o estado identico numero $TENTATIVAS_IDENTICAS: continuar
+barrando nao adiciona informacao e impede voce de entregar a decisao ao operador, que e o que a
+mensagem anterior mandou fazer. Entregue o diagnostico acima e PARE.$AVISO_REPO$LACO"
+  fi
   reporta "GATE - VERIFICACAO FALHOU. O snapshot NAO e um candidato valido.
 Verificadores aplicados:$ECOS
 Reprovaram:$FALHAS

@@ -22,7 +22,8 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/d2e.XXXXXX")"; trap 'rm -rf "$TMP"' EXIT
 # a taxa de aprovacao daqueles dois dias ficou inutilizavel como medida de trabalho real.
 # O ledger tambem e CACHE (so `pass` do mesmo snapshot curto-circuita), entao contaminar nos dois
 # sentidos: teste podia herdar `pass` de outro teste com a mesma arvore.
-export EVIDENCE_LEDGER_DIR="$TMP/ledger"
+. "$(dirname "$0")/../lib/ambiente.sh"
+ambiente_de_suite "$TMP"
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 

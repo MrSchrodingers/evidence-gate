@@ -162,7 +162,8 @@ jq -n '{id:"fake",ecosystem:"fake",operation_class:"parse",extensions:[".fk"],
         declared_effects:{executes_repository_code:false,writes_repository:false,network:false},
         rationale:"fixture", limits:{timeout_seconds:10}}' > "$ADT/fake.json"
 echo "conteudo" > alvo.fk
-rm -f "$HOME/.claude/evidence"/*.jsonl   # isola o ledger deste caso
+# LINHA ORFA REMOVIDA: era `rm -f "$HOME/.claude/evidence"/*.jsonl`, e desde G76 o portao NAO
+# escreve mais ali - apagava o ledger REAL do operador sem isolar nada deste caso.
 SALVO2="$CLAUDE_ADAPTERS_DIR"; export CLAUDE_ADAPTERS_DIR="$ADT"; export PATH="$FAKEBIN:$PATH"
 rc=$(gate false); chk "primeira execucao aprova" "$rc" 0
 # G76: a suite passou a isolar o ledger (`EVIDENCE_LEDGER_DIR`), e este caso continuou lendo o
@@ -170,12 +171,20 @@ rc=$(gate false); chk "primeira execucao aprova" "$rc" 0
 # ler dado velho, e a garantia G11 ("trocar o binario no MESMO path invalida o cache") passou a
 # reprovar sem que nada em `verify-gate.sh` tivesse mudado. Isolar o instrumento sem reapontar
 # quem o le e a mesma classe de defeito que a onda inteira persegue.
-LED="${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}"; ENV1=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
+# O LEDGER E POR REPOSITORIO, e ler o glob inteiro era a causa da nao determinacao. O portao
+# nomeia o arquivo por `sha256(ROOT) | cut -c1-32` (verify-gate.sh, bloco G1), e `cat *.jsonl |
+# tail -1` devolvia a ultima linha do ULTIMO arquivo do glob - que so por acaso e o deste caso.
+# Medido pelo refutador: passava em ~12,6% das execucoes, e reprovava nas outras sem que nada em
+# `verify-gate.sh` tivesse mudado. Segunda metade do mesmo defeito de G76: isolei o instrumento e
+# reapontei so um dos leitores.
+LED="${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}"
+ledger_deste_repo(){ printf '%s/%s.jsonl' "$LED" "$(printf '%s' "$PWD" | sha256sum | cut -c1-32)"; }
+ENV1=$(tail -1 "$(ledger_deste_repo)" 2>/dev/null | jq -r '.env')
 # mesmo caminho, binario DIFERENTE (versao nova)
 printf '#!/bin/sh\n[ "$1" = "--version" ] && { echo "fakelint 2.0"; exit 0; }\nexit 1\n' > "$FAKEBIN/fakelint"
 chmod +x "$FAKEBIN/fakelint"
 rc=$(gate false)
-ENV2=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
+ENV2=$(tail -1 "$(ledger_deste_repo)" 2>/dev/null | jq -r '.env')
 chk "trocar o binario no MESMO path invalida o cache" "$([ "$ENV1" != "$ENV2" ] && echo sim || echo nao)" "sim"
 chk "  e o veredito novo reprova" "$rc" 2
 export CLAUDE_ADAPTERS_DIR="$SALVO2"
