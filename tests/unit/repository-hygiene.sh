@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# TMPDIR DAS SUITES: esta suite nao toma o lock (por desenho), mas cria temporarios igual as
+# outras. Sem esta linha ela continuaria escrevendo em `/tmp`, que e tmpfs com teto FIXO de
+# inodes - a causa medida de tres travamentos da bancada num dia. Ver tests/lib/tmpdir.sh.
+if [ -r "$(dirname "$0")/../lib/tmpdir.sh" ]; then
+  . "$(dirname "$0")/../lib/tmpdir.sh"
+  _tb="$(tollens_tmpdir_base 2>/dev/null || true)"
+  [ -n "$_tb" ] && [ -d "$_tb" ] && [ -w "$_tb" ] && export TMPDIR="$_tb"
+  unset _tb
+fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"

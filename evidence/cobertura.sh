@@ -160,7 +160,7 @@ CHECK=0
 ALVOS="${COBERTURA_ALVOS:-$(cat <<'EOF'
 evidence/probes/github-ruleset.py:86.0
 evidence/validate-claims.py:81.4
-evidence/validate-literature.py:92.3
+evidence/validate-literature.py:94.6
 evidence/runtime-probes/declared-capabilities.py:92.6
 orchestration/schedule.py:89.3
 evidence/corpus/render.py:93.6
@@ -280,15 +280,15 @@ orchestration/schedule.py|ramo|406->408|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->409|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->410|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|436->-1|heranca-piso-absoluto-2026-08-11
-evidence/lint-delta.py|ramo|345->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.|if __name__ == "__main__":
-evidence/lint-delta.py|ramo|326->325|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.|for raiz in raizes:
+evidence/lint-delta.py|ramo|349->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.|if __name__ == "__main__":
+evidence/lint-delta.py|ramo|330->329|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.|for raiz in raizes:
 EOF
 )}"
 
 ABSOLUTO_PENDENTE="${COBERTURA_ABSOLUTO_PENDENTE:-$(cat <<'EOF'
 evidence/probes/github-ruleset.py|arquivo em correcao concorrente por outro agente nesta mesma onda (fora do escopo desta tarefa tocar); 60 itens hoje (36 linhas + 24 ramos, medido nesta sessao) - povoar a isencao agora citaria linhas que a integracao vai deslocar. Reapertar junto com o piso percentual.
 evidence/validate-claims.py|arquivo em correcao concorrente por outro agente nesta mesma onda (fora do escopo desta tarefa tocar); 108 itens hoje (67 linhas + 41 ramos, medido nesta sessao) - mesma razao de evidence/probes/github-ruleset.py.
-evidence/validate-literature.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; 22 itens hoje (12 linhas + 10 ramos, medido nesta sessao) - estender a camada 2 a este arquivo e decisao de quem responde por ele.
+evidence/validate-literature.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; o arquivo triplicou de tamanho na onda 25e (camada de busca delimitada) e a cobertura de decisao subiu de 88,78% para 94,68% com os 15 casos de entrada malformada BD17-BD31; o piso foi reapertado de 92.3 para 94.6 pela propria catraca. Estender a camada 2 (justificativa item a item) a este arquivo continua sendo decisao de quem responde por ele.
 evidence/runtime-probes/declared-capabilities.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; 21 itens hoje (13 linhas + 8 ramos, medido nesta sessao) - mesma razao de evidence/validate-literature.py.
 evidence/validate-adapters.py|arquivo NOVO da onda 10 (validador de conformidade de adaptador); 130 itens hoje (66 linhas + 64 ramos, medido nesta sessao), quase todos as mensagens de violacao de cada regra do schema. A CAMADA 1 vale integralmente com piso 69.3 medido; estender a CAMADA 2 exigiria uma fixture por regra de schema, o que e trabalho proprio e nao correcao pontual. O piso percentual ja impede regressao silenciosa. tests/mutation/adaptadores.sh mede se o validador DISCRIMINA - mas so em QUATRO regras: revisao independente contou 54 chamadas de erro() no validador contra 4 mutantes MA (MA5 e controle de direcao, nao regra). A frase anterior aqui dizia que o arnes respondia pela pergunta que a cobertura nao responde, e isso era overclaim: ele responde por 4/54. O piso continua defensavel; a JUSTIFICATIVA encolheu para o que de fato mede.
 EOF

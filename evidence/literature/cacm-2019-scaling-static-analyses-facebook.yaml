@@ -1,0 +1,126 @@
+# Camada de qualidade de evidencia - ver evidence/validate-literature.py para o contrato e para a
+# definicao da escala fechada de inference_strength. Verde no validador e FORMA (campos
+# presentes, vocabulario fechado, numero com fonte apontada), NAO fidelidade de conteudo a fonte
+# primaria - o validador nao le o artigo.
+#
+# POR QUE ESTA ENTRADA EXISTE. O ADR 0042 decidiu que o portao julga `f(D(head) \ D(base))` e nao
+# `f(D(head))`. Ate 2026-09-04 essa decisao era sustentada apenas por medicao local. Esta e a
+# fonte externa: o unico trabalho localizado que troca SO O ESCOPO, mantendo a mesma analise e a
+# mesma taxa de falso positivo, e mede o desfecho.
+literature_id: cacm-2019-scaling-static-analyses-facebook
+citation: >-
+  Distefano, D.; Fahndrich, M.; Logozzo, F.; O'Hearn, P. W. Scaling static analyses at Facebook.
+  Communications of the ACM, v. 62, n. 8, p. 62-70, 2019. DOI 10.1145/3338112. Lido no author
+  accepted manuscript hospedado pelo UCL Discovery (a paginacao do AAM nao confere com a
+  publicada; DOI e paginacao vindos do registro do editor, nao do PDF). As paginas do editor
+  (cacm.acm.org, dl.acm.org) devolvem HTTP 403 a qualquer fetcher automatizado - nenhuma
+  afirmacao desta entrada vem de pagina do editor.
+identifier: DOI 10.1145/3338112
+url: https://discovery.ucl.ac.uk/id/eprint/10084236/1/O%27Hearn%20AAM%20scaling-static-analysis-at-facebook.pdf
+cited_in:
+- docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
+- evidence/literature/searches/BL-0002-portao-por-delta.yaml
+provenance: peer_reviewed
+study_quality:
+  benchmark: >-
+    Nao e benchmark: relato de experiencia industrial com um EXPERIMENTO NATURAL interno
+    (fonte: secao 4, "Human Factors").
+  n: >-
+    "We assigned 20-30 issues to developers" no braco de arvore inteira (fonte: secao 4, texto
+    completo). O braco de diff-time nao tem n declarado.
+  models: >-
+    Nao se aplica - o objeto sao analisadores estaticos (Infer, Zoncolan), nao modelos de
+    linguagem.
+  scaffold: >-
+    Duas implantacoes do MESMO analisador (Infer): sobre a arvore inteira e em tempo de diff,
+    dentro do fluxo de code review do Facebook (fonte: secao 4).
+  oracle: >-
+    Fix rate - "the proportion of reported issues that developers resolved" (fonte: secao 4,
+    citacao verbatim). Desfecho comportamental observado, nao autorrelato.
+  baseline: >-
+    O proprio braco de arvore inteira: fix rate "near zero" com taxa de falso positivo que os
+    autores acreditavam ser inferior a 20% (fonte: secao 4).
+  trials_repeated: "[nao verificado] - o texto nao declara repeticao do episodio."
+  uncertainty_reported: "[nao verificado] - nao ha intervalo de confianca nem teste estatistico."
+  code_data_available: "[nao verificado] - dados internos do Facebook, nao publicados."
+  replicated: false
+applicability:
+  domain_similarity: >-
+    Alta - analise estatica sobre codigo, integrada ao fluxo de trabalho, com decisao de escopo
+    identica a do ADR 0042 (fonte - findings.escopo_isolado_de_taxa_fp abaixo).
+  scaffold_similarity: >-
+    Media-BAIXA, e esta e a ressalva central desta entrada. O gate deles COMENTA em code review e
+    o consumidor e um engenheiro humano que pode ignorar o aviso; o portao deste repositorio
+    BLOQUEIA a parada do turno e o consumidor e o proprio modelo que escreveu o codigo. A
+    diferenca nao e de grau (fonte - limitations abaixo).
+  oracle_similarity: >-
+    Alta - fix rate observado e desfecho comportamental, da mesma familia do veredito executavel
+    que este repositorio exige.
+inference_strength: SUPPORTED
+inference_rationale: >-
+  O episodio isola a variavel que interessa: mesma analise, mesma taxa de falso positivo, so o
+  ESCOPO muda, e o desfecho vai de "near zero" para "over 70%". Isso e mais forte que qualquer
+  relato de escopo-por-delta na literatura levantada, e sustenta DIRETAMENTE a decisao do ADR
+  0042 de julgar o delta. Nao e DIRECT por tres razoes medidas e nao contornaveis: (1) o n do
+  braco de controle e 20-30 issues, uma equipe, uma epoca, sem aleatorizacao; (2) nao ha
+  intervalo de confianca nem teste - "near zero" e "over 70%" sao numeros sem dispersao
+  declarada; (3) o consumidor do aviso e humano e pode ignora-lo, enquanto o portao deste
+  repositorio bloqueia, e nenhuma fonte mede a tolerancia a falso positivo nesse regime (ver
+  evidence/literature/searches/BL-0002). Transportar a MAGNITUDE do ganho para este harness
+  excederia o que foi medido; transportar a DIRECAO nao.
+findings:
+- metric: escopo_isolado_de_taxa_fp
+  value: "fix rate near zero -> over 70% trocando SO o escopo"
+  source: fulltext
+  note: >-
+    Citacao verbatim da secao 4: "We assigned 20-30 issues to developers, and almost none of them
+    were acted on. We had worked hard to get the false positive rate down to what we thought was
+    less than 20%, and yet the fix rate - the proportion of reported issues that developers
+    resolved - was near zero. Next, we switched Infer on at diff time. The response of engineers
+    was just as stunning: the fix rate rocketed to over 70%. The same program analysis, with same
+    false positive rate, had much greater impact when deployed at diff time."
+- metric: chave_de_identidade_do_diagnostico
+  value: "hash do tipo do bug + informacao independente de localizacao da mensagem"
+  source: fulltext
+  note: >-
+    Citacao verbatim da secao 4: "The 'new' issues are calculated using a bug equivalence notion
+    which uses a hash involving the bug type and location-independent information about the error
+    message, and which is sensitive to file moves and line number changes cause by refactoring,
+    deleting or adding code; the aim is to avoid presenting warnings that developers might regard
+    as pre-existing." [sic: "cause by" no original]. CONVERGENCIA INDEPENDENTE: e a mesma chave
+    que o ADR 0042 deste repositorio adotou - (caminho, codigo, mensagem normalizada), com
+    numeros substituidos - e pela mesma razao declarada, evitar falso-novo em massa.
+- metric: latencia_alvo_diff_time
+  value: "15-20 min por diff, media dentro de 15 min"
+  source: fulltext
+  note: >-
+    A analise de programa inteiro leva "more than an hour (depending on the app), too slow for
+    diff-time at Facebook" (verbatim).
+- metric: zoncolan_action_rate
+  value: "above 80%"
+  source: fulltext
+  note: 43,3% dos bugs graves de seguranca detectados por ele; 211 issues graves prevenidos em diff-time contra 122 detectados em master.
+- metric: metrica_escolhida_deliberadamente
+  value: "action rate e missed bugs, NAO taxa de falso positivo"
+  source: fulltext
+  note: >-
+    Verbatim: "we don't make claims about their rates and pay more attention to the action rate
+    and the (observed) missed bugs." Consequencia para este repositorio: a propria fonte declara
+    NAO medir o falso-negativo do filtro de delta.
+limitations:
+- >-
+  O EPISODIO DECISIVO NAO E EXPERIMENTO CONTROLADO. n=20-30 issues no braco de controle, uma
+  equipe, uma epoca, sem aleatorizacao, sem intervalo de confianca e sem denominador exato do
+  braco de diff-time (fonte - study_quality.n e uncertainty_reported acima).
+- >-
+  O CONSUMIDOR E HUMANO E O AVISO E IGNORAVEL. O valor atribuido ao diff-time no texto e
+  reducao de context switch e relevancia PARA UMA PESSOA. O portao deste repositorio bloqueia a
+  parada de um agente. Nenhuma taxa desta fonte foi calibrada para um gate nao-ignoravel.
+- >-
+  NAO MEDE O FALSO-NEGATIVO DO FILTRO. Os autores declaram explicitamente que nao fazem
+  afirmacao sobre taxas (fonte - findings.metrica_escolhida_deliberadamente acima). Quanto
+  escapa por julgar so o delta continua sem limite superior conhecido, aqui e la.
+- >-
+  ACESSO PELO AAM, NAO PELO EDITOR (fonte: tentativa de acesso nesta sessao). dl.acm.org e
+  cacm.acm.org devolvem HTTP 403 a fetcher automatizado; a paginacao do PDF lido nao confere com
+  a publicada. Diferencas entre o AAM e a versao final NAO foram conferidas - [nao verificado].

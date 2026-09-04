@@ -477,6 +477,284 @@ def valida(doc, arquivo, vistos):
     return e
 
 
+# ---------------------------------------------------------------------------------------------
+# BUSCA DELIMITADA (evidence/literature/searches/*.yaml)
+#
+# POR QUE ESTA CAMADA EXISTE. `tests/unit/governance-links.py` ja obriga toda afirmacao de
+# ausencia na literatura ("nenhum trabalho mede X") a referenciar `[busca:<id>]`, e verifica que
+# o id RESOLVE para um arquivo. Ele nao le o arquivo. Medido nesta arvore: a unica busca
+# registrada, BL-0001, declarava `sources: [ledger interno evidence/literature/]` - uma busca
+# que consultou APENAS o proprio repositorio e concluiu sobre o estado da literatura mundial.
+#
+# `NaoEncontrado(consultas, fontes, data)` so substitui a negativa universal se as tres partes
+# forem reais. Uma busca cujas FONTES sao o proprio corpus e uma tautologia com forma de
+# evidencia: ela nao pode encontrar nada que o repositorio ja nao soubesse, e mesmo assim
+# absolve a claim no lint de governanca. Por isso a regra dura desta camada e FONTE EXTERNA.
+#
+# LIMITE DECLARADO, na mesma disciplina do resto deste validador: isto e FORMA. Verifica que uma
+# fonte externa foi APONTADA e que a consulta foi datada - nao contata a rede, nao reexecuta a
+# busca, nao confere se o resultado declarado corresponde ao que aquela base devolveria hoje.
+CAMPOS_BUSCA = ("claim_id", "question", "searched_at", "searched_by", "sources", "queries",
+                "result")
+
+RE_CLAIM_ID = re.compile(r"^[A-Z]{2}-\d{4}$")
+RE_DATA_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+RE_URL = re.compile(r"https?://", re.IGNORECASE)
+
+# Vocabulario ABERTO de bases externas reconhecidas por nome. Uma fonte tambem vale como externa
+# se trouxer URL - ver `_fonte_externa`. A lista existe para o caso legitimo de busca em base
+# consultada por interface propria, sem URL estavel por consulta.
+BASES_EXTERNAS = ("arxiv", "acm digital library", "dl.acm.org", "ieee", "ieeexplore", "dblp",
+                  "semantic scholar", "google scholar", "springer", "sciencedirect", "usenix",
+                  "pubmed", "openreview", "acl anthology", "scopus", "web of science")
+
+# Marcas de fonte INTERNA: o proprio repositorio. Fonte interna e legitima como COMPLEMENTO
+# (BL-0001 esta certa em consultar o proprio ledger) e insuficiente como UNICA fonte.
+MARCAS_INTERNAS = ("ledger interno", "evidence/", "docs/", "tests/", "este repositorio",
+                   "repositorio interno", "corpus interno")
+
+# Uma busca envelhece: "nao encontrado em 2024" nao sustenta afirmacao em 2027. O limiar e largo
+# de proposito - o objetivo e barrar a afirmacao FOSSILIZADA, nao obrigar revalidacao de rotina.
+# A idade e reportada SEMPRE (visibilidade), e vira violacao acima do limiar.
+DIAS_VALIDADE_BUSCA = 730
+
+
+def _fonte_externa(texto):
+    """Uma fonte conta como externa se traz URL ou nomeia uma base externa conhecida.
+
+    A marca interna tem PRECEDENCIA: `ledger interno evidence/literature/` nao vira externa por
+    conter a substring de uma base no meio de um caminho.
+    """
+    t = str(texto).strip().lower()
+    # A4 DO REFUTADOR: a precedencia da marca interna sobre a URL produzia FALSO NEGATIVO.
+    # `MARCAS_INTERNAS` contem `docs/`, `tests/` e `evidence/` como substring livre, e essas
+    # sequencias aparecem no CAMINHO de URLs externas legitimas. Medido:
+    # `https://ieeexplore.ieee.org/docs/1234` e `https://platform.openai.com/docs/guides` eram
+    # classificadas como INTERNAS, e o validador acusava o autor de "consultou apenas o proprio
+    # repositorio" - acusacao falsa, a mesma classe de dano de A3.
+    # A URL passa a decidir PRIMEIRO: um endereco http(s) e externo por construcao. As marcas
+    # internas continuam valendo para o que NAO e URL, que e onde elas foram medidas (a fonte
+    # real de BL-0001 era `ledger interno evidence/literature/`, sem URL nenhuma).
+    if RE_URL.search(t):
+        return True
+    if any(m in t for m in MARCAS_INTERNAS):
+        return False
+    return any(b in t for b in BASES_EXTERNAS)
+
+
+def _idade_dias(iso):
+    """Dias entre `iso` (YYYY-MM-DD) e hoje. Devolve None se a data nao for legivel."""
+    # A9 DO REFUTADOR: `date.today()` e a data LOCAL. Contribuidor a leste do UTC que grava a
+    # data local do proprio fuso recebia idade -1 e ERRO DURO "esta no FUTURO". A busca e datada
+    # em UTC no resto do repositorio; a comparacao passa a ser em UTC tambem.
+    import datetime
+    m = RE_DATA_ISO.match(str(iso).strip())
+    if not m:
+        return None
+    try:
+        d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+    return (datetime.datetime.now(datetime.timezone.utc).date() - d).days
+
+
+def valida_busca(doc, arquivo, vistos_busca):
+    """Valida UM registro de busca delimitada. Devolve lista de violacoes (vazia = valido)."""
+    e = []
+    nome = os.path.basename(arquivo)
+
+    def erro(msg):
+        e.append(f"{nome}: {msg}")
+
+    if not isinstance(doc, dict):
+        return [f"{nome}: raiz do documento nao e um mapa YAML"]
+
+    for campo in CAMPOS_BUSCA:
+        if campo not in doc:
+            erro(f"campo obrigatorio ausente: {campo}")
+    if e:
+        return e
+
+    cid = str(doc["claim_id"]).strip()
+    if not RE_CLAIM_ID.match(cid):
+        erro(f"claim_id '{cid}' fora do formato AA-0000 (duas maiusculas, hifen, quatro digitos)")
+    elif cid in vistos_busca:
+        erro(f"claim_id '{cid}' duplicado (ja usado em {vistos_busca[cid]})")
+    else:
+        vistos_busca[cid] = nome
+        if not nome.startswith(cid + "-"):
+            erro(f"nome do arquivo deveria comecar com '{cid}-' para casar com claim_id")
+
+    if not str(doc["question"]).strip():
+        erro("question vazia - a busca precisa declarar O QUE foi perguntado")
+    if not str(doc["searched_by"]).strip():
+        erro("searched_by vazio - quem executou a busca e parte do registro")
+
+    # QUERIES: a lista de consultas e o que torna `NaoEncontrado` auditavel. Vazia, o registro
+    # afirma ausencia sem dizer o que procurou.
+    queries = doc["queries"]
+    if not isinstance(queries, list) or not queries:
+        erro("queries precisa ser uma lista NAO VAZIA - sem as consultas a busca nao e auditavel")
+    elif any(not str(q).strip() for q in queries):
+        erro("queries contem entrada vazia")
+
+    # FONTES: a regra dura desta camada. Ver o cabecalho do bloco.
+    sources = doc["sources"]
+    if not isinstance(sources, list) or not sources:
+        erro("sources precisa ser uma lista NAO VAZIA")
+    elif not any(_fonte_externa(s) for s in sources):
+        erro("NENHUMA fonte EXTERNA em sources. Uma busca que consultou apenas o proprio "
+             "repositorio nao observa a literatura: ela nao pode encontrar nada que o corpus "
+             "ja nao contivesse, e por isso nao sustenta uma afirmacao de ausencia. Declare ao "
+             "menos uma fonte com URL (http/https) ou nomeando uma base externa "
+             f"({', '.join(BASES_EXTERNAS[:4])}, ...). Fontes declaradas: {sources}")
+
+    # DATA: formato e nao-futuro. Data no futuro tornaria a idade negativa e o envelhecimento
+    # inerte - o mesmo modo de falha que o portao ja trata para relogio torto.
+    idade = _idade_dias(doc["searched_at"])
+    if idade is None:
+        erro(f"searched_at '{doc['searched_at']}' fora do formato ISO YYYY-MM-DD")
+    elif idade < -1:
+        # -1 e tolerado: e a diferenca maxima de fuso horario para quem grava a data local.
+        # Reprovar por isso seria acusar de "data no futuro" quem apenas mora a leste do UTC.
+        erro(f"searched_at '{doc['searched_at']}' esta no FUTURO ({-idade} dia(s), alem da "
+             "tolerancia de 1 dia para fuso) - data invalida torna o envelhecimento inerte")
+    elif idade > DIAS_VALIDADE_BUSCA:
+        erro(f"busca com {idade} dias (limite {DIAS_VALIDADE_BUSCA}). Uma afirmacao de ausencia "
+             "nao envelhece bem: reexecute as consultas e atualize searched_at, ou remova a "
+             "afirmacao que depende dela")
+
+    # RESULT: o numero declarado precisa bater com a lista. `matching_studies: 0` com um match
+    # listado (ou o inverso) e contradicao interna, a mesma classe que REGRA 5 cobre no corpus.
+    result = doc["result"]
+    if not isinstance(result, dict):
+        erro("result precisa ser um mapa")
+    elif "matching_studies" not in result:
+        erro("result.matching_studies ausente - o resultado da busca precisa ser um numero")
+    else:
+        n = result["matching_studies"]
+        if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+            erro(f"result.matching_studies '{n}' precisa ser inteiro >= 0")
+        else:
+            matches = result.get("matches") or []
+            if not isinstance(matches, list):
+                erro("result.matches precisa ser lista")
+            elif len(matches) != n:
+                erro(f"result.matching_studies={n} mas result.matches lista {len(matches)} "
+                     "entrada(s) - contradicao interna no proprio registro")
+    return e
+
+
+RE_CAMINHO_CITED = re.compile(r"^([A-Za-z0-9_][A-Za-z0-9_./\-]*\.[A-Za-z0-9]+)")
+
+
+def _valida_cited_in(doc, nome, raiz):
+    """`cited_in` afirma ONDE a entrada e citada. A afirmacao tem de ser verdadeira.
+
+    Medido nesta arvore em 2026-09-04: cinco entradas novas declaravam
+    `cited_in: docs/adr/0042-...` enquanto aquele ADR nao mencionava nenhuma delas. `cited_in`
+    esta em CAMPOS_BIBLIOGRAFICOS e por isso escapava da varredura de fonte - o campo era prosa
+    livre que ninguem conferia. Uma entrada que declara ser citada onde nao e citada e a mesma
+    classe de `[busca:<id>]` que nao resolve: referencia que aponta para o vazio.
+
+    ESCOPO DECLARADO: so confere entradas que COMECAM com algo com cara de caminho de arquivo
+    deste repositorio. Texto livre, URL e anotacao entre parenteses sao ignorados de proposito -
+    o objetivo e pegar a referencia falsa, nao normatizar a redacao do campo. E confere MENCAO
+    (o arquivo cita o literature_id OU o identifier), nao que a citacao seja fiel.
+    """
+    e = []
+    for item in doc.get("cited_in") or []:
+        m = RE_CAMINHO_CITED.match(str(item).strip())
+        if not m:
+            continue
+        cam = m.group(1)
+        if "/" not in cam:          # nome solto sem diretorio: nao e caminho deste repo
+            continue
+        abs_ = os.path.join(raiz, cam)
+        if not os.path.isfile(abs_):
+            e.append(f"{nome}: cited_in aponta para arquivo inexistente: '{cam}'")
+            continue
+        try:
+            with open(abs_, encoding="utf-8", errors="replace") as fh:
+                txt = fh.read()
+        except OSError as exc:
+            e.append(f"{nome}: cited_in '{cam}' nao pode ser lido: {exc}")
+            continue
+        lid = str(doc.get("literature_id", ""))
+        ident = str(doc.get("identifier", ""))
+        alvos = [t for t in (lid, ident, ident.replace("arXiv:", ""), ident.replace("DOI ", "")) if t]
+        if not any(t in txt for t in alvos):
+            e.append(f"{nome}: cited_in declara '{cam}', mas esse arquivo nao menciona nem "
+                     f"'{lid}' nem '{ident}'. Referencia que afirma e nao resolve.")
+    return e
+
+
+def _valida_matches_resolvem(doc, nome, raiz):
+    """`matches[].ledger`, quando presente, tem de RESOLVER para um arquivo existente.
+
+    Sem esta regra a busca pode citar um ledger que nunca foi escrito, e o `NaoEncontrado` passa
+    a apontar para o vazio. Foi exatamente o que aconteceu ao redigir BL-0002 nesta arvore: duas
+    entradas foram citadas antes de existirem e o validador aprovou. Referencia que nao resolve e
+    a mesma classe que `tests/unit/governance-links.py` ja fecha para `[busca:<id>]`; faltava o
+    outro sentido da seta.
+    """
+    e = []
+    res = doc.get("result")
+    if not isinstance(res, dict):
+        return e
+    for i, m in enumerate(res.get("matches") or []):
+        if not isinstance(m, dict):
+            continue
+        cam = m.get("ledger")
+        if not cam:
+            continue
+        if not os.path.isfile(os.path.join(raiz, str(cam))):
+            e.append(f"{nome}: result.matches[{i}].ledger nao resolve: '{cam}' nao existe. "
+                     "Busca que cita ledger inexistente aponta para o vazio.")
+    return e
+
+
+def valida_buscas(sdir, raiz):
+    """Varre o diretorio de buscas. Devolve (violacoes, linhas_de_relatorio).
+
+    Diretorio AUSENTE nao e violacao aqui: quem exige que o repositorio real tenha ao menos uma
+    busca registrada e `tests/unit/governance-links.py` (a regra de `[busca:<id>]` seria vacua
+    sem nenhuma). Este validador tambem roda sobre corpora sinteticos de teste, que nao tem a
+    camada. O relatorio declara qual dos dois casos ocorreu, para que "nao violou" nunca seja
+    confundido com "nao foi verificado".
+    """
+    if not os.path.isdir(sdir):
+        return [], ["buscas delimitadas: diretorio ausente - camada NAO VERIFICADA neste corpus."]
+    arquivos = sorted(f for f in os.listdir(sdir) if f.endswith((".yaml", ".yml")))
+    if not arquivos:
+        return [], ["buscas delimitadas: diretorio vazio - camada NAO VERIFICADA neste corpus."]
+    erros, vistos_busca, idades = [], {}, []
+    for nome in arquivos:
+        caminho = os.path.join(sdir, nome)
+        try:
+            with open(caminho, encoding="utf-8") as fh:
+                doc = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            erros.append(f"{nome}: YAML invalido: {exc}")
+            continue
+        erros.extend(valida_busca(doc, caminho, vistos_busca))
+        if isinstance(doc, dict):
+            # RAIZ VEM DO ARGUMENTO, nunca derivada do caminho do diretorio de buscas.
+            # Deriva-la subindo tres niveis funciona no repositorio real e QUEBRA em
+            # qualquer corpus sintetico - os testes montam o diretorio em $TMPDIR, onde
+            # subir tres niveis resolve para /tmp e todo `ledger:` valido parece ausente.
+            erros.extend(_valida_matches_resolvem(doc, nome, raiz))
+        if isinstance(doc, dict):
+            i = _idade_dias(doc.get("searched_at", ""))
+            if i is not None and i >= 0:
+                idades.append((nome, i))
+    linhas = [f"buscas delimitadas lidas: {len(arquivos)}"]
+    for nome, i in sorted(idades, key=lambda x: -x[1]):
+        linhas.append(f"  - {nome}: {i} dia(s) desde a consulta "
+                      f"(limite {DIAS_VALIDADE_BUSCA})")
+    return erros, linhas
+
+
 def main(argv):
     raiz = os.path.abspath(argv[1]) if len(argv) > 1 else os.path.abspath(
         os.path.join(os.path.dirname(__file__), ".."))
@@ -501,13 +779,25 @@ def main(argv):
             erros.append(f"{nome}: YAML invalido: {exc}")
             continue
         erros.extend(valida(doc, caminho, vistos))
+        if isinstance(doc, dict):
+            erros.extend(_valida_cited_in(doc, nome, raiz))
+
+    # CAMADA DE BUSCA DELIMITADA. Conjuntiva com a de literatura: violacao em qualquer uma das
+    # duas reprova o validador inteiro. Ver o cabecalho de CAMPOS_BUSCA para o porque.
+    erros_busca, relatorio_busca = valida_buscas(os.path.join(ldir, "searches"), raiz)
+    erros.extend(erros_busca)
 
     print(f"entradas de literatura lidas: {len(arquivos)}")
+    for linha in relatorio_busca:
+        print(linha)
     if erros:
         print(f"\nVIOLACOES ({len(erros)}):")
         for x in erros:
             print(f"  - {x}")
         return EXIT_VIOLACAO
+    print("camada de buscas valida: toda busca delimitada declara consultas, ao menos uma FONTE "
+          "EXTERNA (URL ou base nomeada), data ISO nao-futura dentro do prazo de validade, e "
+          "result.matching_studies coerente com result.matches.")
     print("camada de literatura valida: campos obrigatorios presentes; inference_strength e "
           "provenance no vocabulario fechado; toda afirmacao numerica com fonte declarada "
           "(findings[].source estrutural, ou marcador 'fonte'/'verificad' inline no restante "

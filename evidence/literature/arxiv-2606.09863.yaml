@@ -9,7 +9,10 @@ citation: >-
 identifier: arXiv:2606.09863
 url: https://arxiv.org/abs/2606.09863
 cited_in:
-- execution/agents/refutador.md
+# REMOVIDO 2026-09-04: `execution/agents/refutador.md` constava aqui e NAO cita esta fonte
+# em lugar nenhum (conferido por busca de identificador, autor e assunto). Era referencia
+# FALSA - aquele agente cita Huang et al. (arXiv:2310.01798), nao Advani. Acusada pela
+# validacao nova de `cited_in`.
 - docs/adr/0010-gate-de-conclusao-ancorado-em-execucao.md (citacao ANTERIOR, corrigida por 0011)
 - docs/adr/0011-de-encenacao-a-mecanismo.md (correcao da citacao de 0010)
 provenance: preprint
@@ -91,6 +94,33 @@ findings:
 - metric: false_success_rate_tau2_single_control
   value: "45-48%"
   source: fulltext
+  note: >-
+    NUMERO DO CORPO DO TEXTO (secao 4.1: "45% and 48% of failures in airline and retail
+    respectively"), MANTIDO AQUI COMO REGISTRO DO QUE A FONTE DIZ - nao e o valor a citar. A
+    Table 1 do mesmo artigo da airline 45% e retail 47%. Ver
+    findings.false_success_rate_tau2_single_control_table1 abaixo e a limitacao dedicada:
+    o artigo e internamente inconsistente nesta quantidade.
+- metric: false_success_rate_tau2_single_control_table1
+  value: "airline 45%, retail 47% (sobre 1.730 falhas)"
+  source: fulltext
+  note: >-
+    VALOR A CITAR. Table 1 e a unica apresentacao com as CONTAGENS por dominio, e por isso e a
+    apresentacao ancorada em dado e nao em prosa. Conferido em fonte primaria em 2026-09-04
+    (https://arxiv.org/html/2606.09863v1) por esta sessao, e independentemente por um contexto
+    de busca separado, que chegou aos mesmos 45/47.
+- metric: inconsistencia_interna_declarada
+  value: "quatro apresentacoes divergentes da mesma quantidade"
+  source: fulltext
+  note: >-
+    Medido em 2026-09-04 sobre a UNICA versao existente (v1, submetida 2026-06-01; historico de
+    versoes conferido em https://arxiv.org/abs/2606.09863 - nao ha v2, entao a divergencia NAO e
+    entre versoes). Apresentacoes encontradas para a taxa em dominios single-control: Table 1 da
+    45 e 47; a secao 4.1 diz "45% and 48%"; o texto corrido cita a faixa "44-52%". Uma leitura da
+    pagina /abs devolveu ainda "45--48%" onde a leitura do /html devolveu "44-52%" para a MESMA
+    frase do abstract - essa ultima divergencia NAO foi resolvida e fica marcada
+    `[nao verificado]`, porque as duas leituras foram feitas pelo mesmo instrumento (WebFetch) e
+    nao ha terceira observacao que decida. O que ESTA estabelecido, por duas leituras
+    independentes que concordam, e a Table 1 (45/47) e o seu conflito com a secao 4.1 (45/48).
 - metric: false_success_rate_tau2_dual_control_telecom
   value: "3%"
   source: fulltext
@@ -145,6 +175,24 @@ limitations:
   repositorio (Claude Code, Codex); a magnitude dos numeros de AUROC/falso-sucesso pode nao se
   transportar diretamente.
 - Identidade dos 5 juizes LLM e das 5 estrategias de deteccao nao verificada nesta camada.
+- >-
+  FONTE INTERNAMENTE INCONSISTENTE nesta quantidade (fonte -
+  findings.inconsistencia_interna_declarada acima). Quem citar deve usar a Table 1 (45/47/3) e
+  NUNCA a faixa "44-52%", que nao corresponde a nenhuma contagem apresentada. Isto nao invalida
+  o estudo - o desenho e a construcao do ground truth seguem solidos -, mas rebaixa a confianca
+  em qualquer numero deste artigo que so apareca em prosa.
+- >-
+  APPWORLD (75.8%) TEM SELECAO FORTE NO DENOMINADOR e nao e taxa populacional: o valor sai apos
+  excluir trajetorias sem `status` e apos REMOVER as arquiteturas `react`/`plan_exec`, que o
+  proprio artigo descreve como escrevendo `status=success` na conclusao independentemente de a
+  tarefa ter sido resolvida - ou seja, as arquiteturas com falso sucesso estrutural de 100%
+  foram tiradas do numerador. Reportado por contexto de busca separado em 2026-09-04 e NAO
+  reconferido em fonte primaria por esta sessao: tratar como `[nao verificado]` ate que seja.
+- >-
+  VENUE NAO VERIFICADO. O campo `comment` do arXiv declara "Accepted to FAGEN@ICML2026", mas
+  esse campo e preenchido pelo proprio autor e nao foi conferido contra listagem de ICML nem
+  contra OpenReview. Tratar como PRE-PRINT (o que `provenance` ja registra) e nao como trabalho
+  aceito em workshop revisado.
 - Taxa de falso sucesso varia por condicao experimental de forma ampla (3% a 75.8%, fonte -
   findings acima); citar um unico numero fora do contexto da condicao repete o defeito que
   docs/adr/0011 corrigiu.

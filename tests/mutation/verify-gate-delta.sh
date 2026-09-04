@@ -24,7 +24,22 @@ echo "== baseline: a suite ponta a ponta precisa passar ANTES de mutar =="
 if bash "$SUITE" >/dev/null 2>&1; then echo "  PASS  baseline verde"; P=$((P+1))
 else echo "  FAIL  baseline VERMELHO - todo veredito abaixo seria sem sentido"; exit 1; fi
 
+# EXECUCAO FRACIONADA (`MVG_ONLY`). MOTIVO MEDIDO: esta suite executa a suite de regressao
+# INTEIRA uma vez por mutante, mais o baseline - 15 execucoes que exercitam o portao mais de mil
+# vezes. Numa maquina sob contencao de memoria ela foi morta por SIGKILL quatro vezes seguidas,
+# sempre antes de concluir, e SIGKILL nao dispara o `trap` que restaura o arquivo mutado.
+#
+# `MVG_ONLY="MVG11 MVG12"` executa apenas os mutantes listados. ISTO NAO SUBSTITUI A EXECUCAO
+# COMPLETA e o rodape declara a execucao como PARCIAL: a garantia deste arnes e que TODO defeito
+# reintroduzido morre, e um subconjunto nao demonstra isso. Serve para (a) fechar o trabalho em
+# blocos quando a maquina nao comporta a execucao inteira, e (b) reexecutar um mutante especifico
+# apos reancora-lo, sem pagar os outros treze.
 mutante(){  # $1=id  $2=defeito reintroduzido  $3=de  $4=para
+  case "${MVG_ONLY:-}" in
+    "") ;;                                  # sem filtro: executa todos
+    *"$1"*) ;;                              # id listado: executa
+    *) return 0 ;;                          # fora do filtro: pula sem contar
+  esac
   cp "$TMP/orig.sh" "$ALVO"
   # SUBSTITUICAO POR PYTHON, nao por `sed`: os alvos contem `|`, `$`, `\` e aspas, e escapar isso
   # num `sed -i` produziu TRES mutantes que nao aplicaram - e mutante que nao aplica e teste
@@ -60,8 +75,15 @@ mutante MVG3 "C1: raiz aninhada aceita entrada chamada .git, sem repositorio" \
 # que e justamente a razao de os dois predicados existirem, um guardando o outro.
 mutante MVG7 "R1: raiz aninhada sem NENHUM commit conta como checkout" \
   'git -C "$_d" rev-parse --verify -q HEAD >/dev/null 2>&1' 'true'
+# MVG4 REANCORADO na onda 25e. A ancora anterior era o pipeline literal
+# `ls-files --others ... | sed 's|^|UNTRACKED |'`, que deixou de existir quando C2 trocou a fonte
+# para `ls-files -z` e C1/C2 puseram a particao em lote. O mutante NAO FOI APLICADO na primeira
+# execucao apos aquelas mudancas, e mutante nao aplicado e TESTE INVALIDO, nao mutante morto - o
+# arnes acusou corretamente. A intencao permanece a mesma: zerar a lista de nao rastreados e
+# verificar que a suite reprova.
 mutante MVG4 "B1: arquivo nao rastreado sai dos hunks" \
-  "git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null | sed 's|^|UNTRACKED |'; }" 'true; }'
+  '_UL="$(git -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null \' \
+  '_UL="$(true 2>/dev/null \'
 mutante MVG5 "F4: deteccao de extensao volta ao pipe que toma SIGPIPE" \
   'if case "$_NL$CHANGED$_NL" in *"${ext}${_NL}"*) true ;; *) false ;; esac; then' \
   'if printf "%s\n" "$CHANGED" | grep -q -- "${ext}\$"; then'
@@ -117,7 +139,37 @@ mutante MVG10 "C3: guarda de mktemp/escrita falha removida - falha transitoria v
     printf '"'"'%s'"'"' "$RAW" > "$RAWF" 2>/dev/null
 '
 
+# --- ONDA 25e: os quatro defeitos de aprovacao silenciosa achados pela revisao externa ---
+# Cada um destes foi REPRODUZIDO ponta a ponta contra o hook em vigor antes de ser corrigido.
+# Sem mutante, a correcao pode ser desfeita e a suite continua verde - foi assim que G74 voltou
+# como G74b e G78. O mutante e o que torna a correcao IRREVERSIVEL EM SILENCIO.
+
+mutante MVG11 "C1/C4: guarda de concordancia inerte - diff vazio volta a valer como arvore intocada" \
+  'for cam, add in esperados.items():' 'for cam, add in {}.items():'
+
+mutante MVG12 "C2: CHANGED sem -z - caminho citado pelo git deixa o adaptador fora" \
+  '_gitz ls-files -z --others --exclude-standard' '_gitz ls-files --others --exclude-standard'
+
+mutante MVG13 "C2: lista de untracked sem -z - a chave do mapa de hunks nunca casa o diagnostico" \
+  'git -c core.quotePath=false ls-files -z --others --exclude-standard' 'git -c core.quotePath=false ls-files --others --exclude-standard'
+
+mutante MVG14 "C3: contador da escotilha sem deduplicacao - forja por duplicacao volta a comprar exit 0" \
+  '    | sort -u \' '    | cat \'
+
 echo
+
+# MVG15 fecha o ramo que o refutador achou aberto: sem ele, a cegueira a renomeacao pode voltar
+# e a suite continua verde. `pend` e o unico estado que distingue o tripleto do `-z`.
+mutante MVG15 "A1: renomeacao volta a ser invisivel para a guarda de concordancia" \
+  'if c[2]=="": pend=2; pend_add=c[0].strip()' \
+  'if c[2]=="": pass'
+
+if [ -n "${MVG_ONLY:-}" ]; then
+  echo "EXECUCAO PARCIAL (MVG_ONLY='$MVG_ONLY') - NAO substitui a execucao completa."
+  echo "MUTANTES=$((P-1+F)) MORTOS=$((P-1)) SOBREVIVENTES=$F"
+  [ "$F" -eq 0 ] && { echo "parcial verde: os mutantes SELECIONADOS morreram"; exit 0; }
+  echo "parcial VERMELHA"; exit 1
+fi
 echo "MUTANTES=$((P-1+F)) MORTOS=$((P-1)) SOBREVIVENTES=$F"
 if [ "$F" -eq 0 ]; then echo "mutacao do executor verde: todo defeito reintroduzido morreu"; exit 0; fi
 echo "mutacao VERMELHA: ha defeito do executor que a suite nao protege"; exit 1

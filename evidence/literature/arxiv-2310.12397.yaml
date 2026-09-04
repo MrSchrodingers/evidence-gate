@@ -1,0 +1,107 @@
+# Camada de qualidade de evidencia - ver evidence/validate-literature.py. Verde aqui e FORMA.
+#
+# POR QUE ESTA ENTRADA EXISTE, E POR QUE ELA E A MAIS CONSEQUENTE DESTA ONDA. Toda a literatura
+# de analise estatica calibra tolerancia a falso positivo supondo um HUMANO na ponta, que pode
+# olhar o achado e dizer "nao". O consumidor deste portao e um agente. Esta fonte mede o que o
+# agente faz quando o feedback esta ERRADO - e a resposta muda o custo de um falso positivo aqui.
+literature_id: arxiv-2310.12397
+citation: >-
+  Stechly, K.; Marquez, M.; Kambhampati, S. GPT-4 Doesn't Know It's Wrong: An Analysis of
+  Iterative Prompting for Reasoning Problems. arXiv:2310.12397. Apresentado no NeurIPS 2023
+  Workshop on Foundation Models for Decision Making (FMDM@NeurIPS2023), OpenReview forum
+  gGQfkyb0KL. ATENCAO A AUTORIA: o trabalho SUCESSOR (arXiv:2402.08115, ICLR 2025) troca o autor
+  do meio de Matthew Marquez para Karthik Valmeekam - confundir os dois e exatamente a classe de
+  erro de citacao que docs/adr/0011 registra.
+identifier: arXiv:2310.12397
+url: https://arxiv.org/abs/2310.12397
+cited_in:
+- docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
+- evidence/literature/searches/BL-0002-portao-por-delta.yaml
+provenance: preprint
+study_quality:
+  benchmark: >-
+    Coloracao de grafos, instancias geradas pelos autores (fonte: texto completo).
+  n: >-
+    100 instancias no braco de coloracao de grafos; a Table 3 do controle "evil" contabiliza 1083
+    backprompts (fonte: texto completo, conferido em PDF por contexto de pesquisa delegado).
+  models: >-
+    GPT-4 (fonte: texto completo).
+  scaffold: >-
+    Laco de backprompting: o LLM gera, um verificador devolve critica, o LLM revisa. Tres
+    condicoes de verificador - o proprio LLM, um verificador externo sound, e o controle "evil".
+  oracle: >-
+    Verificador externo sound de coloracao de grafos - checagem deterministica, independente do
+    texto do modelo.
+  baseline: >-
+    16% de acerto sem backprompt algum (fonte: texto completo, citacao verbatim "a baseline score
+    of 16%").
+  trials_repeated: "[nao verificado] - repeticoes por instancia nao confirmadas."
+  uncertainty_reported: "[nao verificado] - sem intervalo de confianca."
+  code_data_available: "[nao verificado]"
+  replicated: >-
+    Parcialmente - o sucessor arXiv:2402.08115 (ICLR 2025) reproduz o desenho em quatro dominios
+    e confirma a direcao (fonte: Table 1 daquele trabalho).
+applicability:
+  domain_similarity: >-
+    Media - raciocinio simbolico, nao higiene de codigo. O que transporta nao e o dominio: e o
+    comportamento do modelo diante de critica falsa (fonte - findings.controle_evil abaixo).
+  scaffold_similarity: >-
+    ALTA, e e por isso que esta entrada existe. O laco medido - verificador critica, modelo
+    revisa, repete - e literalmente o laco deste repositorio: o portao devolve achado, o agente
+    edita, para de novo.
+  oracle_similarity: >-
+    Alta - verificador externo deterministico, a mesma familia de ruff/eslint sobre o delta.
+inference_strength: SUPPORTED
+inference_rationale: >-
+  O controle "evil" e um experimento com braco de comparacao explicito: o mesmo laco, mudando
+  apenas se a critica aponta um erro real ou um erro FALSO. A taxa com que o modelo aplica a
+  "correcao" e praticamente a mesma nos dois casos, e os autores declaram verbatim que ele nao
+  discrimina. Isso sustenta uma consequencia direta para o desenho deste portao: um achado
+  espurio nao produz apenas ruido e laco, produz EDICAO DE CODIGO CORRETO. Nao e DIRECT porque o
+  dominio medido e coloracao de grafos com GPT-4, nao higiene de Python com os modelos que rodam
+  aqui, e a magnitude (94%, fonte - findings.controle_evil acima) nao se transporta sem assumir
+  generalizacao alem do medido. A
+  DIRECAO - modelo obedece critica falsa com diligencia comparavel a da critica verdadeira - e o
+  que se usa.
+findings:
+- metric: controle_evil
+  value: "94% de 'correcoes' aplicadas quando a critica aponta erro FALSO"
+  source: fulltext
+  note: >-
+    Table 3, verificada em PDF por contexto de pesquisa delegado em 2026-09-04: backprompt
+    "First" 1004/1066 = 94%; "Full (any)" 1077/1102 = 98%; "Evil" (aponta aresta CORRETA como
+    errada) 1017/1083 = 94%. A taxa do controle evil e igual a do primeiro backprompt legitimo.
+- metric: declaracao_dos_autores_sobre_o_evil
+  value: "o modelo nao discrimina critica real de critica falsa"
+  source: fulltext
+  note: >-
+    Citacao verbatim: "Even though performance was unaffected, GPT did correct most errors that
+    were pointed out. However, it didn't discriminate between real errors or the evil case's
+    false ones, blindly applying local 'fixes' without regard for overall correctness."
+- metric: autocritica_intrinseca_degrada
+  value: "16% -> 1% quando o proprio LLM e o verificador"
+  source: fulltext
+  note: >-
+    Verbatim: "a baseline score of 16%" e, com o LLM como verificador, "performance plummets -
+    only a single instance of the 100 was answered correctly". E ainda: "only 4 out of 100 cases
+    were stopped by the LLM-as-verifier, and not one of those was correct."
+limitations:
+- >-
+  DOMINIO ESTREITO: coloracao de grafos, um modelo (GPT-4), sem variacao de modelo ou scaffold
+  (fonte - study_quality.models e benchmark acima). A magnitude nao se transporta.
+- >-
+  PRE-PRINT DE WORKSHOP. A atribuicao a FMDM@NeurIPS2023 vem de FONTE UNICA (consulta a API do
+  OpenReview por contexto delegado); uma consulta independente por titulo devolveu resultados nao
+  relacionados e foi descartada como instrumento quebrado. Tratar a revisao como
+  `[nao verificado]`.
+- >-
+  A GENERALIZACAO "autocorrecao intrinseca sempre piora" e REFUTAVEL e nao deve ser escrita. O
+  trabalho irmao (Valmeekam, FMDM 2023, Table 1) registra Blocksworld 40% -> 55% com critica
+  intrinseca, e os proprios autores relativizam: "The backprompting itself, which offers the
+  generator LLM multiple opportunities to produce a plan, could be a contributing factor". A
+  forma defensavel e: degrada na maioria dos dominios testados e em nenhum se aproxima do
+  verificador externo sound (40->55 intrinseco contra 40->88 com VAL, mesmo dominio).
+- >-
+  NAO MEDE O QUE ESTE REPOSITORIO PRECISARIA SABER: a taxa de corrupcao de codigo CORRETO
+  induzida por um analisador estatico que erra ao falar com um agente. O controle evil prova que
+  o mecanismo existe; ninguem mediu a magnitude no dominio de codigo.

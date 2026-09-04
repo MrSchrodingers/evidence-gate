@@ -17,40 +17,131 @@
 #     NaoEncontrado(consultas, fontes, data)
 #
 # que E mensuravel, tem escopo explicito e envelhece de modo visivel.
+#
+# REVISAO DE 2026-09-04. Ate esta data este registro declarava `sources: [ledger interno]` - e o
+# dizia com todas as letras nos proprios `limits`. A desonestidade nunca esteve aqui; estava na
+# GOVERNANCA, que aceitava um `NaoEncontrado` cujas fontes eram o proprio corpus como suficiente
+# para absolver uma claim de ausencia. Uma busca que consulta so a si mesma nao pode encontrar
+# nada que o repositorio ja nao contivesse. `evidence/validate-literature.py` passou a exigir
+# FONTE EXTERNA (ver CAMPOS_BUSCA), e este arquivo passou a te-la: a busca foi de fato executada
+# contra bases externas, e o resultado - inclusive o que FALHOU - esta abaixo.
 claim_id: BL-0001
 question: >
   Existe trabalho que meca P(agente declara sucesso | verificador independente reprova) -
   isto e, false success com verdade-base independente do texto do agente?
-searched_at: 2026-08-20
-searched_by: sessao de manutencao do repositorio
+searched_at: 2026-09-04
+searched_by: >
+  Sessao de manutencao do repositorio, com execucao das consultas delegada a um contexto
+  separado. ADR 0027 (evidencia repassada carrega fonte): as consultas e o parse de resultado
+  foram executados pelo contexto delegado; a conferencia em fonte primaria dos metadados de
+  arXiv:2606.09863 (titulo, autoria unica, historico de versoes, texto do abstract e numeros da
+  Table 1 contra a secao 4.1) foi refeita DIRETAMENTE nesta sessao contra
+  https://arxiv.org/abs/2606.09863 e https://arxiv.org/html/2606.09863v1. Os numeros dos demais
+  seis estudos vem do contexto delegado e NAO foram reconferidos aqui - ver `limits`.
 sources:
-  - ledger interno evidence/literature/
+  - "arXiv API (Atom): https://export.arxiv.org/api/query"
+  - "arXiv abs/html (texto completo): https://arxiv.org/abs/ , https://arxiv.org/html/"
+  - "dblp: https://dblp.org/search/publ/api"
+  - "OpenReview: https://api2.openreview.net/notes/search (PARCIAL - leitura de nota bloqueada por challenge 403)"
+  - "Semantic Scholar: https://api.semanticscholar.org/graph/v1/paper/search (FALHOU - HTTP 429 em 4 tentativas, sem API key; base NAO consultada)"
+  - "ACL Anthology: https://aclanthology.org/search/ (FALHOU como base - widget CSE sem resultado server-side; substituida por busca aberta direcionada, zero hits no dominio)"
+  - "busca aberta na web (7 consultas)"
+  - "ledger interno evidence/literature/ (complemento, nao fonte primaria da busca)"
 queries:
-  - "false success"
-  - "declared success"
-  - "declara sucesso"
+  - 'all:"false success" AND all:agent'
+  - 'abs:"overclaim" AND abs:agent'
+  - 'abs:"self-reported success" AND abs:agent'
+  - 'abs:"claims success" AND abs:agent'
+  - 'abs:"declares success" OR abs:"declaring success"'
+  - 'all:"fabricated success" OR all:"fabricated completion"'
+  - 'abs:"self-assessment" AND abs:"LLM agent" AND abs:calibration'
+  - 'abs:agent AND abs:"premature" AND abs:"task completion"'
+  - 'all:"unfaithful" AND all:"completion claim"'
+  - 'abs:"sandbagging" AND abs:"LLM"'
+  - 'dblp: false success agent'
+  - 'dblp: agent overclaiming'
+  - 'dblp: self-reported success LLM'
+  - 'dblp: silent failure LLM agent'
+  - 'OpenReview: false success / overclaiming agent / self-reported success / agent self-verification'
+  - 'LLM agent "false success" rate self-reported success versus independent verifier'
+  - 'arxiv LLM agent overclaiming task completion ground truth verifier disagreement measurement'
+  - '"self-reported" success rate LLM agent inflated compared to execution-based evaluation benchmark study'
+  - 'arxiv 2026 agent claims task complete but tests fail measured rate "silent failure" benchmark'
+  - 'SWE-bench coding agent "claims to have fixed" but tests fail measured percentage study 2026'
+  - '"reward hacking" LLM agent measured rate agent reports task complete environment state contradicts 2026 arxiv'
 result:
-  matching_studies: 1
+  matching_studies: 7
   matches:
     - id: arXiv:2606.09863
       ledger: evidence/literature/arxiv-2606.09863.yaml
+      direction: "A - P(declara sucesso | verificador reprova)"
       why: >
-        O ledger deste repositorio registra que o estudo "mede diretamente o fenomeno que motiva
-        a regra dura deste repositorio", com false_success_rate em tau2 single-control,
-        dual-control telecom e AppWorld.
+        Advani (autor unico). Ground truth = reward programatica do tau2-bench e campo `status`
+        do banco do supervisor no AppWorld, sem dependencia do texto do agente. Denominador = o
+        conjunto de FALHAS. Metadados reconferidos em fonte primaria NESTA sessao. Table 1:
+        airline 45%, retail 47%, telecom (dual-control) 3%, sobre 1.730 falhas de 9.876 tarefas.
+    - id: arXiv:2605.08747
+      direction: "A"
+      why: >
+        VIGIL. Reporta `P(rep | W=0)` - taxa de relatorio condicionada a falha de estado de mundo
+        oculto - por modelo, n=1.000 episodios. NAO reconferido em fonte primaria nesta sessao.
+    - id: arXiv:2606.05238
+      direction: "A e B"
+      why: >
+        DeployBench. "60 report SUCCESS while failing verification" em 102 self-stops.
+        NAO reconferido em fonte primaria nesta sessao.
+    - id: arXiv:2604.11270
+      direction: "A"
+      why: >
+        AnalysisBench. Contrapoe taxa auto-validada e taxa verificada manualmente por agente e
+        modelo (ex.: 100% declarado vs 20% verificado). NAO reconferido nesta sessao.
+    - id: arXiv:2606.11688
+      direction: "A"
+      why: >
+        Goal-Autopilot. Taxa de claim terminal sem gate falsificavel aprovado, com IC95, em
+        corpus pareado de 3.150 celulas. NAO reconferido nesta sessao.
+    - id: arXiv:2605.29054
+      direction: "A"
+      why: >
+        T2J-Bench. Gap entre pass rate auto-julgado (>90%) e medido por avaliador fixo (0-29%),
+        n=355. NAO reconferido nesta sessao.
+    - id: arXiv:2410.15164
+      direction: "B - P(verificador reprova | declarou completude)"
+      why: >
+        SPA-Bench, ICLR 2025 Spotlight - o UNICO da lista com venue de conferencia principal.
+        "Premature termination signal" e literalmente o condicional inverso. NAO reconferido.
 conclusion: >
-  A afirmacao de ausencia e FALSA dentro deste frame, e por isso o ADR 0033 recebeu errata. O que
-  permanece sem evidencia e outra proposicao, que NAO e de ausencia na literatura: nao ha
-  demonstracao causal pareada de que ESTE aparato reduza aquele desfecho contra um baseline
-  equivalente.
+  A afirmacao de ausencia e FALSA, e agora por busca EXTERNA e nao apenas contra o corpus
+  interno: sete estudos medem o condicional, em alguma das duas direcoes. O ADR 0033 ja havia
+  recebido errata por este motivo. O que permanece sem evidencia e outra proposicao, que NAO e
+  de ausencia na literatura: nao ha demonstracao causal pareada de que ESTE aparato reduza
+  aquele desfecho contra um baseline equivalente - e a busca confirma que nenhum dos sete mede
+  a INTERVENCAO (um verificador externo na alca de retorno do agente, bloqueando a parada).
 limits:
   - >
-    ESTE FRAME E ESTREITO DE PROPOSITO E ISSO E O PONTO. A busca cobriu o ledger INTERNO deste
-    repositorio, nao arXiv, nao Crossref, nao literatura cinza. Um frame estreito que se declara
-    e honesto; um frame implicito que se apresenta como universal e o defeito que este arquivo
-    substitui.
+    OS NUMEROS NAO SAO COMPARAVEIS ENTRE SI e nao formam uma faixa de um mesmo estimando.
+    Denominadores diferentes (falhas, episodios, claims, runs), direcoes diferentes (A e B) e
+    verificadores diferentes (reward programatica, estado de mundo oculto, teste manual, gate
+    falsificavel, pipeline oculto). Qualquer citacao precisa carregar o denominador junto.
   - >
-    NAO VERIFICADO: nenhuma busca externa foi executada nesta sessao. Ampliar o frame exige
-    conferir cada resultado em fonte primaria antes de registra-lo - o ADR 0011 registra que
-    quatro de cinco citacoes deste repositorio ja foram falsas sob vigilancia da regra que as
-    proibia.
+    BASE DE EVIDENCIA JOVEM. Seis dos sete sao pre-prints de 2026 sem venue confirmado; dois tem
+    autor unico. O unico com venue de conferencia principal (arXiv:2410.15164, ICLR 2025
+    Spotlight) e o mais antigo e mede a direcao INVERSA.
+  - >
+    COBERTURA INCOMPLETA, declarada: Semantic Scholar NAO foi consultada (HTTP 429 em todas as
+    tentativas, sem API key). ACL Anthology nao e buscavel programaticamente e a busca aberta
+    direcionada nao devolveu hits no dominio. No OpenReview a busca funcionou mas a leitura de
+    nota foi bloqueada por challenge 403 - um titulo potencialmente relevante (forum AWc2cd9p40,
+    RSS 2026 L2P Workshop) ficou SEM autores e SEM numeros, e nada foi inferido dele.
+  - >
+    RECONFERENCIA PARCIAL. So arXiv:2606.09863 teve metadados e numeros reconferidos em fonte
+    primaria diretamente nesta sessao. Os outros seis vem do contexto delegado com fonte
+    declarada e NAO foram reabertos aqui - tratar como `[nao verificado]` ate que sejam.
+    Precedente que obriga esta cautela: o ADR 0011 registra que quatro de cinco citacoes deste
+    repositorio ja foram falsas sob vigilancia da regra que as proibia, e nesta mesma busca um
+    sumarizador devolveu "87 de 97 ... 55 report SUCCESS" onde o HTML primario diz "92 de 102
+    ... 60".
+  - >
+    O termo "false success" com este sentido e recente e ainda nao e vocabulario estabelecido:
+    tres consultas ao arXiv e duas ao dblp devolveram ZERO. Uma busca futura com vocabulario
+    diferente pode encontrar trabalho que esta nao alcancou.

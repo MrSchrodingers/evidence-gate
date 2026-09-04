@@ -26,6 +26,15 @@
 # instalado - disso cuidam install/verify.sh e tests/unit/managed.sh.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+# TMPDIR DAS SUITES: esta suite nao toma o lock (por desenho), mas cria temporarios igual as
+# outras. Sem esta linha ela continuaria escrevendo em `/tmp`, que e tmpfs com teto FIXO de
+# inodes - a causa medida de tres travamentos da bancada num dia. Ver tests/lib/tmpdir.sh.
+if [ -r "$(dirname "$0")/../lib/tmpdir.sh" ]; then
+  . "$(dirname "$0")/../lib/tmpdir.sh"
+  _tb="$(tollens_tmpdir_base 2>/dev/null || true)"
+  [ -n "$_tb" ] && [ -d "$_tb" ] && [ -w "$_tb" ] && export TMPDIR="$_tb"
+  unset _tb
+fi
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 
@@ -401,7 +410,25 @@ for _t in tests/unit/*.sh tests/mutation/*.sh; do
   # arquivo aprovaria de novo por auto-referencia - so que no predicado NOVO em vez do antigo.
   [ "$_t" = "tests/unit/contrato-de-instalador.sh" ] && continue
   grep -qE '(bash|sh) +"?\$?\{?[A-Za-z_]*\}?[^"]*verify-gate\.sh|bash "\$GATE"' "$_t" || continue
-  grep -qE "$_PADRAO_ISOLA_LEDGER" "$_t" || _SEM_LEDGER="$_SEM_LEDGER $_t"
+  # FALSO POSITIVO MEDIDO, e ele estava VIVO em `HEAD` antes desta correcao: o predicado e
+  # TEXTUAL e nao segue `source`. `tests/unit/delta-e2e.sh` isola o ledger, mas recebe o
+  # isolamento de `tests/lib/ambiente.sh` - a FONTE UNICA criada justamente para nao duplicar a
+  # atribuicao em cada suite. O predicado acusava a suite que faz a coisa certa pelo caminho
+  # certo. Reproduzido num worktree limpo de HEAD: `FAIL nenhuma suite escreve no ledger do
+  # operador (got= tests/unit/delta-e2e.sh)`, PASS=52 esperado 53 - sem nenhuma alteracao local.
+  #
+  # A correcao NAO afrouxa: carregar `lib/ambiente.sh` so vale como isolamento se aquele arquivo
+  # DE FATO atribuir a variavel, o que e conferido aqui, a cada volta. Se alguem esvaziar
+  # `ambiente.sh`, toda suite que dependia dele volta a ser acusada - que e o comportamento
+  # correto.
+  if grep -qE "$_PADRAO_ISOLA_LEDGER" "$_t"; then
+    :
+  elif grep -qE '(^|[^A-Za-z0-9_])\.[[:space:]]+[^;]*lib/ambiente\.sh' "$_t" \
+       && grep -qE "$_PADRAO_ISOLA_LEDGER" tests/lib/ambiente.sh; then
+    :
+  else
+    _SEM_LEDGER="$_SEM_LEDGER $_t"
+  fi
 done
 chk "nenhuma suite escreve no ledger do operador" "$_SEM_LEDGER" ""
 # ANTIVACUIDADE: se o padrao de busca parar de casar, a varredura passa por nao achar ninguem.

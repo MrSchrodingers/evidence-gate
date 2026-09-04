@@ -40,6 +40,10 @@ O QUE ESTE ARQUIVO NAO FAZ, declarado: ele nao executa o analisador nem le o rep
 diagnosticos, hunks e baseline, e devolve veredito. Fronteira escolhida para que o nucleo seja
 testavel sem repo, sem rede e sem o hook - a logica que decide bloqueio nao pode morar dentro de
 um executor de 400 linhas de shell que ninguem consegue exercitar isoladamente.
+
+PROCEDENCIA DA MEDICAO que motivou este nucleo: o registro esta em
+`evidence/literature/local-2026-08-31-portao-por-delta.yaml` (local_experiment), com os
+limites declarados la.
 """
 from __future__ import annotations
 

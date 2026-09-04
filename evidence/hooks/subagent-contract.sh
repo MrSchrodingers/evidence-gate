@@ -17,9 +17,28 @@ INPUT="$(cat)"
 [ "$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ] && exit 0
 
 AT="$(printf '%s' "$INPUT" | jq -r '.agent_type // empty' 2>/dev/null || true)"
+# AUTORIDADE AMPLA (2026-09-04). Ate esta data o `case` era uma ALLOWLIST dos dez agentes
+# definidos por este repositorio, e todo o resto caia no `*) exit 0`. MEDIDO no log de ativacao
+# permanente (/var/log/tollens-activation.jsonl, 491 lancamentos de subagente registrados):
+# 170 deles, 34%, ficavam FORA do contrato. A lista do que escapava e o problema inteiro -
+# `general-purpose` 66, `workflow-subagent` 54, `fork` 19, `code-review` 17, `Explore` 5,
+# `Plan` 1, mais quatro tipos `code-*`. Ou seja: o agente de proposito geral, o agente de
+# WORKFLOW e o fork do proprio modelo entregavam relatorio sem nenhuma obrigacao de evidencia,
+# enquanto o CLAUDE.md anuncia o contrato como universal. A allowlist tornava a regra falsa
+# para um terco dos casos, e falsa exatamente nos casos que o operador nao consegue prever -
+# um agente novo, de plugin ou de workflow, nasce FORA da regra por padrao.
+#
+# A forma correta e a inversa: cobrir TUDO e declarar a excecao. O `case` abaixo passou a ser
+# uma DENYLIST curta e justificada, e qualquer tipo nao listado nela E cobrado.
 case "$AT" in
-  investigador|mapeador-dependencias|revisor-codigo|refutador|auditor-seguranca|\
-  analista-otimalidade|analista-fluxos|revisor-frontend|implementador|tdd) ;;
+  # EXCECOES DECLARADAS. Nao sao "agentes menos importantes": sao agentes que nao emitem
+  # afirmacao tecnica sobre um artefato, e para os quais exigir ancora de evidencia produziria
+  # ruido sem aumentar rigor. Qualquer acrescimo a esta lista precisa da razao junto.
+  statusline-setup|output-style-setup) exit 0 ;;   # configuram a UI; nao afirmam nada sobre codigo
+  "") exit 0 ;;                                     # evento sem tipo: outra classe de evento (ver cabecalho)
+  # TUDO O MAIS E COBRADO - inclusive general-purpose, workflow-subagent, fork, Explore, Plan,
+  # code-review e qualquer agente de plugin que ainda nao exista.
+  *) ;;
   # implementador e tdd ENTRAM (4a arguicao, achado 8): o CLAUDE.md anuncia o contrato como
   # universal e eles ficavam de fora - o agente que ESCREVE CODIGO era o unico nao cobrado
   # por evidencia. Exige o matcher correspondente no settings.json e no hooks.json.
@@ -30,7 +49,6 @@ case "$AT" in
   # codigo por duas versoes - prosa obsoleta apresentada como estado atual e exatamente a
   # classe de defeito que este repositorio existe para impedir. Verificado em 2026-08-04:
   # `jq '.hooks.SubagentStop[].matcher' ~/.claude/settings.json` contem ambos.
-  *) exit 0 ;;   # tipo vazio ou de terceiro: nao e nosso contrato, nao opinar.
 esac
 
 # 1. campo dedicado com o texto final completo.
@@ -185,6 +203,32 @@ fi
 grep -qiE '^[[:space:]]*[-*#]*[[:space:]]*RISCOS' <<<"$NORM"    || MISS="$MISS RISCOS"
 grep -qiE '^[[:space:]]*[-*#]*[[:space:]]*PROPAGACAO' <<<"$NORM" || MISS="$MISS PROPAGACAO"
 
+# REGISTRO INFORMAL (secao 9 do kernel, estendida a conversa em 2026-09-04). MOTIVO CONCRETO:
+# o operador recebeu de um agente desta maquina um retorno que o tratava por "mano". O
+# diagnostico deste harness e lido como evidencia, e evidencia em registro casual convida a ser
+# lida como opiniao.
+#
+# LISTA DELIBERADAMENTE MINIMA E ANCORADA COMO VOCATIVO. Falso positivo aqui e caro - mais caro
+# do que a literatura de analise estatica supoe, porque o consumidor e um agente: medido em
+# arXiv:2310.12397 (controle "evil"), o modelo aplica a "correcao" pedida em 94% dos casos MESMO
+# QUANDO A ACUSACAO E FALSA. Um detector de estilo agressivo faria agentes reescreverem relatorio
+# correto. Por isso ficam de fora palavras com uso tecnico legitimo ("cara", "top", "massa") e
+# so entram as inequivocamente coloquiais, cercadas por pontuacao ou limite de palavra.
+# A3 DO REFUTADOR, e o erro foi de CLASSE, nao de item: eu testei a classe SUBSTRING
+# (`humano`, `romano`, `germano` nao disparam) e nao testei a HOMOGRAFA - palavra inteira com uso
+# formal legitimo. Medido: "valeu a pena" (preterito de VALER) e "beleza" como substantivo comum
+# reprovavam um relatorio tecnico correto. Isso e o dano que este bloco diz evitar: acusacao falsa
+# contra um consumidor que, por arxiv-2310.12397 (controle "evil"), obedece acusacao falsa na
+# MESMA taxa da verdadeira.
+# `valeu` e `beleza` SAIRAM da lista solta e so contam como VOCATIVO - seguidos de pontuacao
+# terminal ou de fim de linha, que e como o coloquialismo aparece ("valeu!", "beleza?"). "valeu a
+# pena" e "a beleza da solucao" deixam de casar.
+INFORMAL='(^|[[:space:],;(])(mano|manos|blz|tipo assim|ta ligado|tao ligados)([[:space:],.!?:;)]|$)'
+INFORMAL="$INFORMAL"'|(^|[[:space:],;(])(valeu|beleza)[[:space:]]*[!?.]|(^|[[:space:],;(])(valeu|beleza)[[:space:]]*$'
+if grep -qiE "$INFORMAL" <<<"$NORM"; then
+  MISS="$MISS REGISTRO-INFORMAL"
+fi
+
 [ -n "$MISS" ] || exit 0
 
 {
@@ -195,6 +239,11 @@ grep -qiE '^[[:space:]]*[-*#]*[[:space:]]*PROPAGACAO' <<<"$NORM" || MISS="$MISS 
   echo "                a conclusao e auto-avaliacao, e auto-avaliacao nao e sinal."
   echo "  RISCOS      - o que ficou em aberto ou precisa de decisao."
   echo "  PROPAGACAO  - pontos do grafo de dependencias afetados (ou 'nenhum', justificado)."
+  case "$MISS" in *REGISTRO-INFORMAL*)
+    echo "REGISTRO-INFORMAL: o retorno usa vocativo coloquial. Secao 9 do kernel: registro"
+    echo "  tecnico e formal, sem giria e sem apelido para o operador - no artefato E na"
+    echo "  conversa. Reescreva a frase; o conteudo tecnico nao precisa mudar." ;;
+  esac
   echo "Se nao conseguiu obter evidencia, escreva em EVIDENCIA o token NAO VERIFICADO, em"
   echo "caixa alta, com o motivo ao lado. E resposta valida; afirmacao sem lastro nao e."
   echo "A caixa alta e exigida de proposito: em prosa corrida a frase aparece por acidente e"

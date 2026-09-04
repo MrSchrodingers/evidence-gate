@@ -72,8 +72,7 @@ cat <<'JSON' | jq --arg b "$BASE" \
       {"type":"command","command":"bash @BASE@/ds4-notify.sh","timeout":5}]}],
   "SubagentStop": [
     {"hooks":[{"type":"command","command":"bash @BASE@/subagent-probe.sh"}]},
-    {"matcher":"investigador|mapeador-dependencias|revisor-codigo|refutador|auditor-seguranca|analista-otimalidade|analista-fluxos|revisor-frontend|implementador|tdd",
-     "hooks":[{"type":"command","command":"bash @BASE@/subagent-contract.sh"}]},
+    {"hooks":[{"type":"command","command":"bash @BASE@/subagent-contract.sh"}]},
     {"hooks":[{"type":"command","command":"bash @BASE@/ds4-notify.sh","timeout":5}]}
   ],
   "SubagentStart": [{"hooks":[

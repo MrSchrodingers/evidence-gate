@@ -352,7 +352,7 @@ gate_tr(){ printf '{"transcript_path":"%s"}' "$_tr" | timeout 120 bash "$GATE" >
 printf 'import os\n' > antigo.py; touch -d '2026-07-17 18:16' antigo.py
 chk "untracked ANTIGO sozinho: NAO bloqueia" "$(gate_tr)" 0
 chk "  e a exclusao e DECLARADA, nao silenciosa" \
-    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'NAO RASTREADO E ANTERIOR AO TURNO')" 1
+    "$(cat "$TMP/o" "$TMP/e" 2>/dev/null | grep -c 'NAO RASTREADO E ANTERIOR A ESTA SESSAO')" 1
 # CONTROLE NEGATIVO, e ele e o que separa correcao de afrouxamento: arquivo untracked escrito
 # AGORA continua sendo do turno e continua bloqueando.
 printf 'import sys\n' > agora.py
@@ -384,7 +384,130 @@ chk "  CONTROLE: sessao NOVA volta a bloquear na 1a parada" "$(gate_s "sessao-ou
 chk "  e a sessao nova NAO ve a escotilha" \
     "$(grep -c 'NAO BLOQUEANTE' "$TMP/e")" 0
 
-EXPECTED=69
+echo "== DE16. o ESCOPO DE HIGIENE nao pode ser desligado por arquivo do repositorio (C1) =="
+# REPRODUZIDO contra o hook em vigor antes da correcao: `printf '*.py -diff' > .gitattributes`
+# faz `git diff` emitir "Binary files a/a.py and b/a.py differ" - ZERO hunks. O parser roda,
+# imprime `{}`, e `{}` E um objeto valido: a guarda de TIPO nao dispara, toda a higiene sai do
+# julgamento, o portao sai 0 com stdout VAZIO e grava `pass`, que fica em cache. Uma linha em
+# arquivo versionado, escrita pelo ator governado, desligava o portao em silencio.
+# A guarda passou a ser de CONCORDANCIA: o que `git diff --numstat` diz que mudou tem de
+# aparecer no mapa de linhas tocadas.
+repo d16; printf 'import os\nimport sys\n' > a.py     # F401 x2 = HIGIENE em arquivo RASTREADO
+chk "CONTROLE: higiene em arquivo rastreado bloqueia" "$(gate)" 2
+repo d16b; printf 'import os\nimport sys\n' > a.py
+printf '*.py -diff\n' > .gitattributes; git add .gitattributes; git commit -qm attrs >/dev/null
+chk "  com '*.py -diff' AINDA bloqueia (nao ha bypass)" "$(gate)" 2
+chk "  e a divergencia e DECLARADA, nao silenciosa" \
+    "$(grep -c 'ESCOPO DE HIGIENE DIVERGENTE' "$TMP/e")" 1
+chk "  com a causa nomeada por arquivo" \
+    "$(grep -c 'tratado como binario pelo git' "$TMP/e")" 1
+# CONTROLES NEGATIVOS: a guarda nova nao pode inventar divergencia onde nao ha. Sem estes
+# quatro, trocar-se-ia um falso negativo por um falso positivo - e falso positivo, neste
+# portao, e mais caro que ruido: ver evidence/literature/arxiv-2310.12397.yaml (controle
+# "evil": o modelo aplica a correcao pedida na MESMA taxa quando a acusacao e falsa).
+repo d16c; chk "  CONTROLE: arvore limpa nao acusa divergencia" "$(gate)" 0
+chk "    (e nenhuma linha de divergencia)" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
+repo d16d; git rm -q a.py; gate >/dev/null
+chk "  CONTROLE: arquivo DELETADO nao acusa divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
+repo d16e; chmod +x a.py; gate >/dev/null
+chk "  CONTROLE: mudanca so de MODO nao acusa divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
+repo d16f; printf '\211PNG\r\n\032\n\000\001' > img.png; git add img.png; git commit -qm png >/dev/null
+printf '\211PNG\r\n\032\n\000\002' > img.png; gate >/dev/null
+chk "  CONTROLE: binario REAL alterado nao acusa divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
+
+echo "== DE17. caminho que o git CITA nao pode deixar o portao inerte (C2) =="
+# `core.quotePath=false` desliga a citacao de nao-ASCII, mas o git CITA SEMPRE caminho com
+# aspas, barra invertida ou caractere de controle. MEDIDO: `ls-files --others` devolve
+# `acentuacao.py` cru e `"com\ttab.py"` / `"com\"aspas.py"` CITADOS. A forma citada termina em
+# `.py"`, nao casa o `case` de extensao, e o adaptador inteiro deixava de ser selecionado.
+repo d17; printf 'def f():\n    return jamais\n' > normal.py   # F821 = QUEBRA
+chk "CONTROLE: nome normal com F821 bloqueia" "$(gate)" 2
+repo d17b; printf 'def f():\n    return jamais\n' > 'ev"il.py'
+chk "  nome com ASPAS, mesmo conteudo, TAMBEM bloqueia" "$(gate)" 2
+repo d17c; printf 'def f():\n    return jamais\n' > "$(printf 'com\ttab.py')"
+chk "  nome com TAB tambem bloqueia" "$(gate)" 2
+# O SNAPSHOT precisa enxergar o conteudo do arquivo de nome citado. Se nao enxergar, o `pass`
+# em cache vale para QUALQUER conteudo daquele arquivo - bypass PERMANENTE, nao pontual.
+repo d17d; printf 'x = 1\n' > outro.py; printf 'y = 2\n' > 'ev"il.py'
+gate >/dev/null; S1="$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.snapshot' 2>/dev/null)"
+printf 'def f():\n    return jamais\n' > 'ev"il.py'
+R2="$(gate)"; S2="$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.snapshot' 2>/dev/null)"
+chk "  mudar o conteudo do arquivo com aspas BLOQUEIA" "$R2" 2
+chk "  e o SNAPSHOT muda (cache nao fica cego ao conteudo)" "$([ "$S1" != "$S2" ] && echo sim || echo nao)" sim
+
+echo "== DE18. falha do PRODUTOR do diff nao pode virar arvore intocada (C4) =="
+# G74 fechou o PARSER; o buraco estava um nivel acima. `--output-indicator-*` existe desde o git
+# 2.25: em git anterior a opcao e desconhecida, `git diff` sai 129, o `2>/dev/null` engole, o
+# parser roda em entrada quase vazia e imprime um objeto VALIDO. Guarda de tipo nao dispara.
+repo d18; printf 'import os\nimport sys\n' > a.py
+chk "CONTROLE: com git real, higiene bloqueia" "$(gate)" 2
+_SHIM="$TMP/shim-d18"; mkdir -p "$_SHIM"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'for a in "$@"; do case "$a" in --output-indicator-*) echo "fatal: unknown option" >&2; exit 129 ;; esac; done\n'
+  printf 'exec %s "$@"\n' "$(command -v git)"
+} > "$_SHIM/git"; chmod +x "$_SHIM/git"
+repo d18b; printf 'import os\nimport sys\n' > a.py
+_R="$(PATH="$_SHIM:$PATH" bash -c "printf '{}' | timeout 120 bash '$GATE'" >"$TMP/o" 2>"$TMP/e"; echo $?)"
+chk "  git que RECUSA a opcao AINDA bloqueia" "$_R" 2
+chk "  e declara a divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 1
+
+echo "== DE19. a escotilha nao pode ser comprada duplicando linha do ledger (C3) =="
+# REPRODUZIDO: `for i in 1 2 3 4 5; do tail -1 "$L" >> "$L"; done` levava o portao a exit 0 na
+# parada seguinte, com a quebra viva na arvore. O contador passou a considerar apenas registros
+# DISTINTOS. LIMITE DECLARADO no proprio hook: isto fecha a duplicacao (acidental ou trivial),
+# NAO um adversario - o ledger e gravavel pelo ator e um `pass` forjado no formato exato
+# atravessa o cache. Essa garantia e da fronteira root-owned, nao deste contador.
+repo d19; printf 'def f():\n    return jamais\n' > q.py; git add -A
+_S="sessao-forja-$$"
+gate_s(){ printf '{"session_id":"%s"}' "$1" | timeout 120 bash "$GATE" >"$TMP/o" 2>"$TMP/e"; echo $?; }
+chk "parada 1 real bloqueia" "$(gate_s "$_S")" 2
+_L="$(ledger_do_repo)"
+for _i in 1 2 3 4 5; do tail -1 "$_L" >> "$_L"; done
+chk "  FORJA por duplicacao NAO compra a escotilha" "$(gate_s "$_S")" 2
+chk "  e a escotilha nao foi declarada" "$(grep -c 'NAO BLOQUEANTE' "$TMP/e")" 0
+# CONTROLE POSITIVO: a escotilha LEGITIMA continua abrindo. Sem ele, o dedup poderia ter
+# quebrado G81 inteiro e a suite ficaria verde por nao exercitar o caminho.
+repo d19b; printf 'def f():\n    return jamais\n' > q.py; git add -A
+_S2="sessao-legit-$$"
+for _i in 1 2 3 4 5 6; do chk "  parada real $_i bloqueia" "$(gate_s "$_S2")" 2; done
+chk "  7a parada LEGITIMA abre a escotilha" "$(gate_s "$_S2")" 0
+
+echo "== DE20. RENOMEACAO nao pode escapar da guarda de concordancia (A1 do refutador) =="
+# O refutador derrubou a primeira versao de DE16: ela usava `a.py` de 2 linhas, e com arquivo
+# curto o git NAO detecta renomeacao - o caso nunca exercitava o ramo. Com similaridade alta,
+# `git diff -z --numstat` emite `add \t del \t \0 origem \0 destino \0`, tres linhas apos o `tr`,
+# e a guarda gravava a entrada de caminho VAZIO e descartava as outras duas. Medido contra o hook
+# ja "corrigido": `.gitattributes` com `*.py -diff` + `git mv` devolvia rc=0, stdout vazio, zero
+# divergencias e `pass` no ledger. Este caso existe para que isso nao volte.
+repo d20
+python3 - <<'PY'
+open("grande.py","w").write("\n".join(f"x{i} = {i}" for i in range(60)) + "\n")
+PY
+git add -A; git commit -qm base2 >/dev/null
+printf '*.py -diff\n' > .gitattributes; git add .gitattributes; git commit -qm attrs >/dev/null
+git mv grande.py renomeado.py; printf 'import os\nimport sys\n' >> renomeado.py
+chk "rename de ALTA similaridade + '-diff' AINDA bloqueia" "$(gate)" 2
+# A assercao mede a LINHA DE CAUSA, nao o numero de vezes que o nome aparece: o nome tambem
+# aparece no JSON do analisador, e contar ocorrencias soltas amarraria o teste ao formato daquele
+# JSON. Duas assercoes, e a segunda e a que importa - nao basta DECLARAR a divergencia, a higiene
+# do arquivo renomeado tem de ser efetivamente JULGADA.
+chk "  e a divergencia nomeia o caminho de DESTINO" \
+    "$(grep -c '^    - renomeado\.py: ' "$TMP/e")" 1
+chk "  e a higiene do arquivo RENOMEADO e julgada (nao so declarada)" \
+    "$(grep -c '"path": "renomeado.py".*F401' "$TMP/e")" 1
+# CONTROLE NEGATIVO: renomear sem introduzir higiene nova nao pode acusar nada. Sem este par, a
+# correcao poderia ter virado "toda renomeacao vira faixa total", que e falso positivo em massa -
+# e falso positivo neste portao produz EDICAO DE CODIGO CORRETO (arxiv-2310.12397, controle evil).
+repo d20b
+python3 - <<'PY'
+open("grande.py","w").write("\n".join(f"x{i} = {i}" for i in range(60)) + "\n")
+PY
+git add -A; git commit -qm base2 >/dev/null
+git mv grande.py renomeado.py
+chk "  CONTROLE: rename PURO nao bloqueia" "$(gate)" 0
+chk "  CONTROLE: e nao acusa divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
+
+EXPECTED=101
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

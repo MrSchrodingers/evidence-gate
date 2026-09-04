@@ -1,0 +1,116 @@
+# Camada de qualidade de evidencia - ver evidence/validate-literature.py. Verde aqui e FORMA.
+literature_id: icse-2015-tricorder
+citation: >-
+  Sadowski, C.; van Gogh, J.; Jaspan, C.; Soderberg, E.; Winter, C. Tricorder: Building a Program
+  Analysis Ecosystem. In: 37th IEEE/ACM International Conference on Software Engineering (ICSE),
+  2015, p. 598-608. DOI 10.1109/ICSE.2015.76. PDF completo lido em copia hospedada pelo Google
+  Research; paginacao vinda do dblp. As paginas do editor (dl.acm.org) devolvem HTTP 403 a
+  fetcher automatizado (verificado nesta busca).
+identifier: DOI 10.1109/ICSE.2015.76
+url: https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43322.pdf
+cited_in:
+- docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
+- evidence/literature/searches/BL-0002-portao-por-delta.yaml
+provenance: peer_reviewed
+study_quality:
+  benchmark: >-
+    Nao e benchmark - relato de experiencia sobre a plataforma de analise em code review do
+    Google, com estatisticas de uso (fonte: secoes IV e V).
+  n: >-
+    Media de 93 mil achados por dia em cerca de 30 categorias (fonte: secao V, texto completo).
+  models: >-
+    Nao se aplica - analisadores estaticos, sem modelo de linguagem.
+  scaffold: >-
+    Bot que COMENTA em code review; o consumidor e um engenheiro humano que decide (fonte: corpo
+    do artigo).
+  oracle: >-
+    "not-useful rate" declarada pelos proprios revisores, calculada como
+    NOTUSEFUL/(NOTUSEFUL+PLEASEFIX+APPLYFIX) (fonte: secao IV-E). E rotulo humano, nao
+    verificacao executavel.
+  baseline: "[nao verificado] - nao ha braco de comparacao sem a ferramenta."
+  trials_repeated: "[nao verificado]"
+  uncertainty_reported: "[nao verificado] - sem intervalo de confianca."
+  code_data_available: "[nao verificado] - dados internos do Google."
+  replicated: false
+applicability:
+  domain_similarity: >-
+    Alta - a politica declarada e literalmente a decisao do ADR 0042 (fonte -
+    findings.politica_de_linhas_alteradas abaixo).
+  scaffold_similarity: >-
+    Baixa - bot que comenta, consumidor humano, aviso ignoravel. Este repositorio bloqueia a
+    parada de um agente.
+  oracle_similarity: >-
+    Baixa - o oraculo e rotulo humano de utilidade, nao verificacao executavel.
+inference_strength: SUPPORTED
+inference_rationale: >-
+  A politica de mostrar achado apenas em linhas alteradas e declarada explicitamente (fonte -
+  findings.politica_de_linhas_alteradas acima) e com a
+  razao (manter o resultado relevante para a revisao em curso), o que sustenta a decisao central
+  do ADR 0042. E o rodape 2 documenta, ja em 2015, a EXCECAO que este repositorio redescobriu por
+  medicao e chamou de classe QUEBRA. Nao e DIRECT porque nao ha experimento comparando os dois
+  escopos - a politica e afirmada, nao testada -, e porque o consumidor e humano.
+findings:
+- metric: politica_de_linhas_alteradas
+  value: "resultado mostrado por padrao apenas em linhas alteradas"
+  source: fulltext
+  note: >-
+    Citacao verbatim da secao III-D: "Additionally, we only display results for most analyses on
+    changed lines by default; this keeps analysis results relevant to the code review at hand."
+- metric: excecao_de_linha_nao_alterada
+  value: "algumas analises rodam em TODAS as linhas por padrao"
+  source: fulltext
+  note: >-
+    Rodape 2, verbatim: "We do show some analyses on all lines by default; as an example,
+    warnings about unused variables can occur on an unchanged line when the block of code using
+    the variable is deleted by the changelist." E o caso SIMETRICO da classe QUEBRA deste
+    repositorio (remover uma funcao quebra quem a chama, e o chamador nao esta no diff): a
+    generalizacao HIGIENE/QUEBRA do ADR 0042 cobre o que aqui e excecao pontual.
+- metric: limiar_de_falso_positivo_por_contexto
+  value: "build ~zero; code review <10%"
+  source: fulltext
+  note: >-
+    Verbatim: no build, "the effective false positive rate must be essentially zero", com "< 5%
+    overhead"; em code review, "We still enforce a very low effective false positive rate here
+    (< 10%)."
+- metric: politica_de_desligamento_por_not_useful_rate
+  value: ">=10% em observacao; >25% pode ser desligado na hora"
+  source: fulltext
+  note: >-
+    Secao IV-E, verbatim: "A rate >= 10% puts the analyzer on probation"; "If the rate goes above
+    25%, we may decide to turn the analyzer off immediately." Taxa agregada real "typically at
+    around 5%", e "under 4%" excluindo os em observacao.
+- metric: origem_do_limiar_de_10pct
+  value: "herdado de outra plataforma, nao derivado"
+  source: fulltext
+  note: >-
+    Rodape 5, verbatim: "This 10% false positive threshold matches that used by other analysis
+    platforms such as Coverity."
+- metric: modo_de_abandono_observado
+  value: "abandono por ver colegas introduzindo novas instancias"
+  source: fulltext
+  note: >-
+    Secao III-E, verbatim: "a developer abandons a tool they were initially using after
+    discovering teammates were committing new instances of code containing warnings flagged by
+    the tool."
+- metric: orcamento_de_latencia
+  value: "5-10 min por analise, contra revisao humana de mais de 1 hora"
+  source: fulltext
+  note: >-
+    Verbatim: "we typically expect analyses to complete in less than 5 - 10 minutes (ideally much
+    less)"; "The mean time for a review of more than one line is greater than 1 hour."
+limitations:
+- >-
+  A POLITICA E AFIRMADA, NAO TESTADA. Nao ha experimento comparando escopo por linha alterada
+  contra arvore inteira, nem medida do que escapa pelo filtro (fonte - study_quality.baseline
+  acima).
+- >-
+  O PROPRIO ARTIGO DECLARA CEGUEIRA DE INSTRUMENTO (fonte: rodape 6 do texto completo),
+  verbatim: "we do not have the ability to measure how many results are viewed by developers" -
+  a not-useful rate mede quem clicou, nao quem viu.
+- >-
+  CONSUMIDOR HUMANO, AVISO IGNORAVEL, ORCAMENTO DE MINUTOS CONTRA REVISAO DE MAIS DE UMA HORA
+  (fonte - findings.orcamento_de_latencia acima). Um Stop-hook roda a cada parada de turno, um
+  regime ordens de magnitude mais frequente, e nao ha nesta fonte nada calibrado para ele.
+- >-
+  NADA SOBRE AGENTES, nada sobre repositorio com divida em massa nao rastreada, e nada sobre gate
+  bloqueante.

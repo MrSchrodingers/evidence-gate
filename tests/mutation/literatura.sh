@@ -28,7 +28,7 @@ ORIG="evidence/validate-literature.py"
 REG="tests/unit/literatura.sh"
 TMP="$(mktemp -d)"; trap 'cp -f "$TMP/orig.py" "$ORIG" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 cp -f "$ORIG" "$TMP/orig.py"
-P=0; F=0; BASELINE=nao; EXPECTED_MUTANTS=13
+P=0; F=0; BASELINE=nao; EXPECTED_MUTANTS=24
 
 echo "== baseline: a suite precisa passar ANTES de qualquer mutacao =="
 if bash "$REG" >/dev/null 2>&1; then echo "  PASS  baseline verde"; BASELINE=ok
@@ -223,6 +223,94 @@ mutante ML13 "proximidade por DISTANCIA DE BORDA (D8), nao span inteiro numa jan
             norm = re.sub(r"\s+", " ", bruto).lower()
             if len(norm) >= 8:
                 achadas.setdefault(norm, bruto)'
+
+# ---------------------------------------------------------------------------------------------
+# MUTANTES DA CAMADA DE BUSCA DELIMITADA (BD1-BD14 em tests/unit/literatura.sh).
+#
+# A regra que estes mutantes protegem nao e cosmetica: `evidence/literature/searches/` e a UNICA
+# forma autorizada de afirmar ausencia na literatura (tests/unit/governance-links.py), e ate esta
+# onda nada lia o conteudo desses arquivos. Sem mutante, um afrouxamento da regra de FONTE
+# EXTERNA passaria com a suite verde - exatamente o modo de falha que este arnes existe para
+# impedir.
+
+# MB1/MB2 REANCORADOS na onda 25e: A4 do refutador inverteu a precedencia dentro de
+# `_fonte_externa` (a URL passou a decidir antes das marcas internas), e as ancoras antigas
+# deixaram de casar. O arnes acusou NAO APLICADO - teste invalido, nao mutante morto.
+mutante MB1 "fonte externa deixa de ser exigida: qualquer sources vale" \
+  "BD2 so fonte INTERNA (o caso real de BL-0001) -> reprova" \
+  troca '    if RE_URL.search(t):
+        return True
+    if any(m in t for m in MARCAS_INTERNAS):
+        return False' \
+        '    return True
+    if any(m in t for m in MARCAS_INTERNAS):
+        return False'
+
+mutante MB2 "marca interna perde precedencia sobre o NOME da base" \
+  "BD3 caminho INTERNO que contem 'arxiv' NAO vira fonte externa" \
+  troca '    if any(m in t for m in MARCAS_INTERNAS):
+        return False
+    return any(b in t for b in BASES_EXTERNAS)' \
+        '    if any(b in t for b in BASES_EXTERNAS):
+        return True
+    return not any(m in t for m in MARCAS_INTERNAS)'
+
+mutante MB3 "queries vazia deixa de reprovar: ausencia sem dizer o que procurou" \
+  "BD5 queries VAZIA (ausencia sem dizer o que procurou) -> reprova" \
+  troca '    if not isinstance(queries, list) or not queries:' \
+        '    if not isinstance(queries, list):'
+
+mutante MB4 "busca nunca envelhece: afirmacao fossilizada segue valida" \
+  "BD9 busca FOSSILIZADA (800 dias > limite 730) -> reprova" \
+  troca 'DIAS_VALIDADE_BUSCA = 730' \
+        'DIAS_VALIDADE_BUSCA = 10**9'
+
+# MB5 REANCORADO: A9 do refutador trocou `idade < 0` por `idade < -1` (tolerancia de um dia
+# para fuso horario), e a ancora antiga deixou de casar.
+mutante MB5 "data no futuro deixa de reprovar: envelhecimento vira inerte" \
+  "BD8 searched_at no FUTURO -> reprova" \
+  troca '    elif idade < -1:' \
+        '    elif idade < -10**9:'
+
+mutante MB6 "result.matches deixa de ser conferido contra matching_studies" \
+  "BD10 matching_studies=0 com 1 match listado (contradicao interna) -> reprova" \
+  troca '            elif len(matches) != n:' \
+        '            elif False:'
+
+mutante MB7 "a camada inteira vira inerte: valida_buscas nunca devolve violacao" \
+  "BD2 so fonte INTERNA (o caso real de BL-0001) -> reprova" \
+  troca '    erros, vistos_busca, idades = [], {}, []' \
+        '    return [], ["buscas delimitadas: camada desligada"]
+    erros, vistos_busca, idades = [], {}, []'
+
+mutante MB8 "diretorio ausente deixa de DECLARAR que nao verificou" \
+  "  ...mas DECLARA que a camada nao foi verificada" \
+  troca '        return [], ["buscas delimitadas: diretorio ausente - camada NAO VERIFICADA neste corpus."]' \
+        '        return [], []'
+
+mutante MB9 "referencia a ledger inexistente deixa de ser conferida" \
+  "BD15 match citando ledger INEXISTENTE -> reprova" \
+  troca '        if not os.path.isfile(os.path.join(raiz, str(cam))):' \
+        '        if False:'
+
+# MB10 CORRIGIDO: a primeira versao trocava `if not os.path.isfile(abs_):` por `if False:` e
+# SOBREVIVEU - o arquivo inexistente deixava de ser acusado ali, mas o `open()` logo abaixo
+# levantava OSError e o `except` reprovava por outra causa. O caso BD16 mede `rc`, e `rc` tinha
+# duas causas possiveis. Mutante que sobrevive por uma SEGUNDA barreira nao mede a barreira que
+# pretende medir. Agora o mutante PULA o item inteiro, que e a unica forma de a ausencia passar
+# despercebida de verdade.
+mutante MB10 "cited_in deixa de ser conferido: entrada inexistente e ignorada em silencio" \
+  "BD16 cited_in para arquivo INEXISTENTE -> reprova" \
+  troca '        if not os.path.isfile(abs_):
+            e.append(f"{nome}: cited_in aponta para arquivo inexistente: '"'"'{cam}'"'"'")
+            continue' \
+        '        if not os.path.isfile(abs_):
+            continue'
+
+mutante MB11 "cited_in confere existencia mas nao MENCAO: arquivo que nao cita passa" \
+  "  arquivo existe mas NAO menciona a entrada -> reprova" \
+  troca '        if not any(t in txt for t in alvos):' \
+        '        if False:'
 
 cp -f "$TMP/orig.py" "$ORIG"
 echo

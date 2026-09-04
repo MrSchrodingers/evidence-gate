@@ -4,7 +4,8 @@ Estado: aceito. Onda 25.
 
 ## O defeito, medido
 
-O log do proprio portao (`~/.claude/evidence/*.jsonl`, 5054 registros) mostra **2942 `fail` contra
+O log do proprio portao (`~/.claude/evidence/*.jsonl`, 5054 registros; registro de procedencia
+em `evidence/literature/local-2026-08-31-portao-por-delta.yaml`) mostra **2942 `fail` contra
 2110 `pass`** - 42% de aprovacao. Agregando o campo `detail` das 2942 reprovacoes: **um unico
 motivo**, `falharam: python-analyzer`, o mais recente no mesmo dia da medicao.
 
@@ -176,3 +177,76 @@ testes estavam medindo. Quem pegou foi uma assercao de CONTEUDO escrita para OUT
 REGRA QUE FICA: neste portao, todo caso que espera bloqueio mede tambem a CAUSA. `exit 2` e
 condicao necessaria e nao suficiente; sem a causa, o teste nao separa "o portao funcionou" de "o
 portao quebrou de um jeito que tambem bloqueia".
+
+## Adendo: o lastro externo desta decisao, e o que ele NAO cobre
+
+Ate 2026-09-04 a decisao de julgar `f(D(head) \ D(base))` em vez de `f(D(head))` era sustentada
+apenas por medicao local. A busca delimitada `[busca:BL-0002]`
+(`evidence/literature/searches/BL-0002-portao-por-delta.yaml`) levantou o que existe fora.
+
+**A fonte que sustenta o desenho.** Distefano, Fahndrich, Logozzo e O'Hearn, *Scaling static
+analyses at Facebook* (CACM 62(8), 2019 - ledger em
+`evidence/literature/cacm-2019-scaling-static-analyses-facebook.yaml`) relatam um experimento
+natural que troca **so o escopo**, mantendo a mesma analise e a mesma taxa de falso positivo:
+
+> "We assigned 20-30 issues to developers, and almost none of them were acted on. We had worked
+> hard to get the false positive rate down to what we thought was less than 20%, and yet the fix
+> rate - the proportion of reported issues that developers resolved - was near zero. Next, we
+> switched Infer on at diff time. [...] the fix rate rocketed to over 70%. The same program
+> analysis, with same false positive rate, had much greater impact when deployed at diff time."
+
+E a chave de identidade que a secao "Identidade do diagnostico" adotou aqui - `(caminho, codigo,
+mensagem normalizada)`, com numeros substituidos - converge de forma independente com a do Infer:
+"a hash involving the bug type and location-independent information about the error message [...]
+the aim is to avoid presenting warnings that developers might regard as pre-existing". Duas
+equipes sem contato chegando a mesma chave pela mesma razao e o apoio mais forte que um desenho
+recebe da literatura.
+
+Sadowski et al., *Tricorder* (ICSE 2015 - `evidence/literature/icse-2015-tricorder.yaml`) declara
+a politica em uma frase - "we only display results for most analyses on changed lines by default"
+- e, no rodape 2, ja documentava a EXCECAO que este repositorio redescobriu por medicao e chamou
+de classe QUEBRA: aviso de variavel nao usada pode cair em linha nao alterada quando o bloco que
+a usava foi deletado. A tabela HIGIENE/QUEBRA generaliza o que la era excecao pontual.
+
+**O que a literatura diz sobre o custo do ruido.** Bessey et al. (CACM 53(2), 2010 -
+`evidence/literature/cacm-2010-billion-lines-of-code-later.yaml`) descrevem o ciclo que esta
+sessao observou em producao: "a vicious cycle starts where low trust causes complex bugs to be
+labeled false positives, leading to yet lower trust". Christakis e Bird (ASE 2016 -
+`evidence/literature/ase-2016-what-developers-want-program-analysis.yaml`) dao a unica
+distribuicao quantitativa localizada: 90% dos respondentes aceitam ate 5% de falso positivo, e
+apenas 24% toleram 20%. E a irritacao numero UM da lista deles nao e falso positivo, e sim
+"irrelevant checks are turned on by default" - que e exatamente a forma dos 79 achados de higiene
+alheios ao turno que motivaram o G82.
+
+**O achado que muda o calculo aqui, e que nenhuma dessas fontes cobre.** Todos esses limiares
+foram calibrados para um consumidor HUMANO, que pode olhar um achado e dizer "nao". O consumidor
+deste portao e um agente. Stechly, Marquez e Kambhampati (arXiv:2310.12397 -
+`evidence/literature/arxiv-2310.12397.yaml`) mediram o controle "evil", em que a critica aponta um
+erro FALSO: o modelo aplica a "correcao" em 94% dos casos, praticamente a mesma taxa do
+backprompt legitimo, e os autores registram que ele "didn't discriminate between real errors or
+the evil case's false ones, blindly applying local 'fixes' without regard for overall
+correctness".
+
+CONSEQUENCIA DIRETA PARA ESTE PORTAO, e ela e assimetrica em relacao ao que a literatura de
+analise estatica supoe: um achado espurio nao produz apenas ruido e laco - produz EDICAO DE
+CODIGO CORRETO. O custo de um falso positivo aqui e maior que em qualquer contexto medido pelas
+fontes acima, e por isso toda correcao de escopo desta onda veio acompanhada de controles
+negativos explicitos, e nao apenas do caso positivo.
+
+**O que continua sem apoio externo** (registrado em `[busca:BL-0002]`, secao `limits`):
+
+- [busca:BL-0002] Nenhum estudo revisado compara gate-sobre-novo contra gate-sobre-arvore
+  medindo desfecho. O
+  que existe e relato industrial convergente e material de fornecedor. A eficacia da catraca
+  segue sem demonstracao; a evidencia empirica disponivel e do lado do RISCO (Hu et al., FSE
+  2025: supressoes crescem com o tempo e 50,8% delas nao afetam warning nenhum).
+- Nenhuma fonte mede um gate BLOQUEANTE [busca:BL-0002], nem um gate cujo consumidor seja o
+  proprio modelo que escreveu o codigo.
+- Nenhuma fonte trata de repositorio com divida em massa NAO RASTREADA [busca:BL-0002], que e o caso concreto
+  medido aqui (2691 arquivos untracked em /var/www/amaral-intern-hub).
+- [busca:BL-0002] Nenhuma fonte mede estabilidade de identificador de regra entre versoes de
+  analisador - a
+  classe do G65, em que a remocao do `E999` pelo ruff quebrou a classificacao deste portao.
+
+O experimento pareado que esta e outras ADRs declaram em aberto continua em aberto. A literatura
+sustenta a EXISTENCIA deste portao; ela nao substitui a medicao do efeito dele aqui.

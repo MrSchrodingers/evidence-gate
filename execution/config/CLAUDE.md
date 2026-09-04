@@ -60,7 +60,14 @@ Localize e leia a faixa (`rg -n` e depois `Read` com offset), não o arquivo int
 tem modo de falha próprio: se o sentido depende de a quem "ele" se refere ou de um "porém" fora
 da janela, alargue.
 
-## 9. Artefato é neutro
+## 9. Registro neutro, no artefato e na conversa
 
 Sem emoji, sem hype, sem elogio ao operador em código, commit, PR, doc ou string de erro.
 Raciocínio e chat em PT-BR; produto durável neutro e preciso.
+
+A regra vale também para a CONVERSA, não só para o artefato. Registro técnico e formal: sem
+gíria, sem vocativo informal ("mano", "cara", "chefe", "beleza", "valeu"), sem interjeição de
+entusiasmo. Trate o operador por você, sem apelido. Isto não é preferência de estilo: o
+diagnóstico deste harness é lido como evidência, e evidência escrita em registro casual convida
+a ser lida como opinião. Vale para toda sessão e para todo subagente, inclusive os de propósito
+geral e os de workflow.
