@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 # LOCK DE EXECUCAO DAS SUITES. Este arquivo e SOURCED, nunca executado direto.
 #
+# ELE TAMBEM FIXA O `TMPDIR` DAS SUITES, e isso nao e escopo emprestado: este e o unico arquivo
+# carregado por praticamente toda suite deste repositorio (38 de 47, medido), e o problema que
+# se resolve aqui e da bancada inteira, nao de uma suite. Ver `tests/lib/tmpdir.sh`,
+# `tollens_tmpdir_base`, para a medicao: `/tmp` e tmpfs com teto FIXO de 1.048.576 inodes, uma
+# arena custa 2768 inodes, e a bancada travou tres vezes num dia com 12 G de espaco livre e
+# inodes esgotados. Fixar a base aqui, uma vez, corrige todo `mktemp` das suites - inclusive os
+# que nao passam base explicita - sem editar 47 arquivos e sem que um arquivo novo nasca errado.
+if [ -r "$(dirname "${BASH_SOURCE[0]}")/tmpdir.sh" ]; then
+  . "$(dirname "${BASH_SOURCE[0]}")/tmpdir.sh"
+  _tollens_base="$(tollens_tmpdir_base 2>/dev/null || true)"
+  if [ -n "$_tollens_base" ] && [ -d "$_tollens_base" ] && [ -w "$_tollens_base" ]; then
+    export TMPDIR="$_tollens_base"
+  fi
+  unset _tollens_base
+fi
+#
 # POR QUE EXISTE - reproduzido em 2026-08-04, nao inferido:
 #   bash tests/mutation/contrato.sh &   # muta subagent-contract.sh NO LUGAR
 #   sleep 6; bash tests/unit/run.sh     # le o mesmo arquivo

@@ -20,10 +20,10 @@ O README referencia este arquivo em vez de duplicar numeros.
 | `tests/unit/arnes-de-mutacao.sh` | 7 | 0 |
 | `tests/unit/schedule.sh` | 34 | 0 |
 | `tests/unit/fronteira-viva.sh` | 188 | 0 |
-| `tests/unit/literatura.sh` | 38 | 0 |
+| `tests/unit/literatura.sh` | 76 | 0 |
 | `tests/unit/capabilities.sh` | 60 | 0 |
-| `tests/unit/cobertura.sh` | 28 | 0 |
-| `tests/unit/contrato-de-instalador.sh` | 47 | 0 |
+| `tests/unit/cobertura.sh` | 36 | 0 |
+| `tests/unit/contrato-de-instalador.sh` | 53 | 0 |
 | `tests/unit/hooks-de-guarda.sh` | variavel (base) | 0 |
 | `tests/unit/capability-conformance.py` | variavel (base) | 0 |
 | `tests/unit/run.sh` | variavel (ambiente) | 0 |
@@ -40,19 +40,19 @@ O README referencia este arquivo em vez de duplicar numeros.
 | conformidade de dois escopos | 7 | passo dedicado no CI |
 | escalonamento | 10 | passo dedicado no CI |
 | fronteira viva | 30 | passo dedicado no CI |
-| camada de literatura | 13 | passo dedicado no CI |
+| camada de literatura | 24 | passo dedicado no CI |
 | claim ledger | 8 | passo dedicado no CI |
 | capability declarada | 7 | passo dedicado no CI |
-| cobertura de decisao | 5 | passo dedicado no CI |
+| cobertura de decisao | 6 | passo dedicado no CI |
 | adaptadores (auto) | 5 | passo dedicado no CI |
 | capability-conformance (auto) | 27 | passo dedicado no CI |
 | corpus-completude (auto) | 22 | passo dedicado no CI |
 | fable-guard (auto) | 12 | passo dedicado no CI |
 | hooks-de-guarda (auto) | 18 | passo dedicado no CI |
-| lint-delta (auto) | ? | NAO executado no CI |
+| lint-delta (auto) | 11 | passo dedicado no CI |
 | managed-transitive-trust (auto) | 2 | NAO executado no CI |
 | skill-invocation-policy (auto) | 2 | NAO executado no CI |
-| verify-gate-delta (auto) | ? | NAO executado no CI |
+| verify-gate-delta (auto) | 15 | passo dedicado no CI |
 
 ## Cobertura de decisao (branch), medida via subprocesso instrumentado
 
@@ -64,12 +64,12 @@ assercao).
 |---|---:|---:|---|
 | `evidence/probes/github-ruleset.py` | 86.0% | 86.0% | OK |
 | `evidence/validate-claims.py` | 81.4% | 81.4% | OK |
-| `evidence/validate-literature.py` | 92.3% | 92.3% | OK |
+| `evidence/validate-literature.py` | 94.6% | 94.6% | OK |
 | `evidence/runtime-probes/declared-capabilities.py` | 92.6% | 92.6% | OK |
 | `orchestration/schedule.py` | 89.3% | 89.3% | OK |
 | `evidence/corpus/render.py` | 93.6% | 93.6% | OK |
 | `evidence/validate-adapters.py` | 69.3% | 69.3% | OK |
-| `evidence/lint-delta.py` | 98.9% | 98.9% | OK |
+| `evidence/lint-delta.py` | 99.0% | 99.0% | OK |
 
 ## Componentes
 

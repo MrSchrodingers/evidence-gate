@@ -22,6 +22,14 @@ chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL
 # HOME isolado: o ledger/stamp do gate mora em $HOME. Sem isolar, o estado do usuario decide
 # o resultado do teste - ja aconteceu neste repo (tests/unit/run.sh, cabecalho).
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# LEDGER ISOLADO. `verify-gate.sh` grava em `${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}`, e
+# nenhuma suite exportava a variavel: cada execucao desta suite injetava paradas SINTETICAS no
+# ledger operacional do usuario, no mesmo diretorio que serve de evidencia sobre uso real.
+# Medido em 2026-09-02: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de teste, e
+# a taxa de aprovacao daqueles dois dias ficou inutilizavel como medida de trabalho real.
+# O ledger tambem e CACHE (so `pass` do mesmo snapshot curto-circuita), entao contaminar nos dois
+# sentidos: teste podia herdar `pass` de outro teste com a mesma arvore.
+export EVIDENCE_LEDGER_DIR="$TMP/ledger"
 export HOME="$TMP/home"; mkdir -p "$HOME/.claude/logs"
 
 # ARMADILHA JA PAGA: `R=$(novo_repo g3)` roda a funcao num SUBSHELL, e o `cd` morre com ele -
@@ -154,15 +162,29 @@ jq -n '{id:"fake",ecosystem:"fake",operation_class:"parse",extensions:[".fk"],
         declared_effects:{executes_repository_code:false,writes_repository:false,network:false},
         rationale:"fixture", limits:{timeout_seconds:10}}' > "$ADT/fake.json"
 echo "conteudo" > alvo.fk
-rm -f "$HOME/.claude/evidence"/*.jsonl   # isola o ledger deste caso
+# LINHA ORFA REMOVIDA: era `rm -f "$HOME/.claude/evidence"/*.jsonl`, e desde G76 o portao NAO
+# escreve mais ali - apagava o ledger REAL do operador sem isolar nada deste caso.
 SALVO2="$CLAUDE_ADAPTERS_DIR"; export CLAUDE_ADAPTERS_DIR="$ADT"; export PATH="$FAKEBIN:$PATH"
 rc=$(gate false); chk "primeira execucao aprova" "$rc" 0
-LED="$HOME/.claude/evidence"; ENV1=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
+# G76: a suite passou a isolar o ledger (`EVIDENCE_LEDGER_DIR`), e este caso continuou lendo o
+# ledger REAL do operador - lugar onde o portao ja nao escreve. Resultado: `ENV1 == ENV2` por
+# ler dado velho, e a garantia G11 ("trocar o binario no MESMO path invalida o cache") passou a
+# reprovar sem que nada em `verify-gate.sh` tivesse mudado. Isolar o instrumento sem reapontar
+# quem o le e a mesma classe de defeito que a onda inteira persegue.
+# O LEDGER E POR REPOSITORIO, e ler o glob inteiro era a causa da nao determinacao. O portao
+# nomeia o arquivo por `sha256(ROOT) | cut -c1-32` (verify-gate.sh, bloco G1), e `cat *.jsonl |
+# tail -1` devolvia a ultima linha do ULTIMO arquivo do glob - que so por acaso e o deste caso.
+# Medido pelo refutador: passava em ~12,6% das execucoes, e reprovava nas outras sem que nada em
+# `verify-gate.sh` tivesse mudado. Segunda metade do mesmo defeito de G76: isolei o instrumento e
+# reapontei so um dos leitores.
+LED="${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}"
+ledger_deste_repo(){ printf '%s/%s.jsonl' "$LED" "$(printf '%s' "$PWD" | sha256sum | cut -c1-32)"; }
+ENV1=$(tail -1 "$(ledger_deste_repo)" 2>/dev/null | jq -r '.env')
 # mesmo caminho, binario DIFERENTE (versao nova)
 printf '#!/bin/sh\n[ "$1" = "--version" ] && { echo "fakelint 2.0"; exit 0; }\nexit 1\n' > "$FAKEBIN/fakelint"
 chmod +x "$FAKEBIN/fakelint"
 rc=$(gate false)
-ENV2=$(cat "$LED"/*.jsonl 2>/dev/null | tail -1 | jq -r '.env')
+ENV2=$(tail -1 "$(ledger_deste_repo)" 2>/dev/null | jq -r '.env')
 chk "trocar o binario no MESMO path invalida o cache" "$([ "$ENV1" != "$ENV2" ] && echo sim || echo nao)" "sim"
 chk "  e o veredito novo reprova" "$rc" 2
 export CLAUDE_ADAPTERS_DIR="$SALVO2"

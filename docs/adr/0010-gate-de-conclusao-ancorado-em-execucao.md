@@ -13,7 +13,8 @@ testa. Causa: conclusao de debug superficial/precipitada + declarar sucesso sem 
 
 Base de evidencia (docs/research/referencias-pesquisa-agentes-llm.md, verificada):
 - "False success" e dominante: 45-89% em benchmarks (arXiv:2606.09863).
-- Auto-correcao SEM sinal externo DEGRADA (Kamoi, TACL 2024; Huang et al., ICLR 2024) - peer-reviewed.
+- Auto-correcao SEM sinal externo DEGRADA (Kamoi, TACL 2024; Huang et al., ICLR 2024,
+  arXiv:2310.01798) - peer-reviewed.
 - Execucao AMPLIFICA (+12%); explicacao pura e fraca (+2-3%) (Chen et al., ICLR 2024) - peer-reviewed.
 - Teste de reproducao F2P (falha antes, passa depois) como filtro DOBRA a precisao + regressao
   (SWT-Bench, NeurIPS 2024) - peer-reviewed.

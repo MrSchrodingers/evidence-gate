@@ -4,6 +4,15 @@
 # for every possible side effect; it protects the two decisions actually made by this PR.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+# TMPDIR DAS SUITES: esta suite nao toma o lock (por desenho), mas cria temporarios igual as
+# outras. Sem esta linha ela continuaria escrevendo em `/tmp`, que e tmpfs com teto FIXO de
+# inodes - a causa medida de tres travamentos da bancada num dia. Ver tests/lib/tmpdir.sh.
+if [ -r "$(dirname "$0")/../lib/tmpdir.sh" ]; then
+  . "$(dirname "$0")/../lib/tmpdir.sh"
+  _tb="$(tollens_tmpdir_base 2>/dev/null || true)"
+  [ -n "$_tb" ] && [ -d "$_tb" ] && [ -w "$_tb" ] && export TMPDIR="$_tb"
+  unset _tb
+fi
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 

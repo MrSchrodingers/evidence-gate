@@ -29,9 +29,43 @@
 # devolve 1 SEM ecoar nada quando recusa. Nao emite aviso - quem chama decide se a recusa e fatal
 # (o lock segue sem protecao e avisa; a arena perde a atribuicao e o caso vira NOT_VERIFIED).
 
+# BASE DOS TEMPORARIOS - e por que ela nao e `/tmp` por padrao.
+#
+# MEDIDO nesta maquina, depois de a bancada travar TRES vezes num dia: `/tmp` e tmpfs com teto
+# FIXO de 1.048.576 inodes, e esse teto - nao o espaco - e o que estoura. No pior episodio havia
+# 12 G livres em bytes e 437 inodes livres; `mktemp` falhava, a ferramenta de shell nao
+# conseguia criar o proprio arquivo de saida, e o Stop-gate passou a declarar LACUNA em toda
+# parada (fail-closed, correto, mas a bancada parou). Uma unica arena de suite custa 2768 inodes
+# (a arvore com `.git`), e `tests/unit/delta-e2e.sh` cria um repositorio git por caso.
+#
+# `/home` e btrfs: `df -i` reporta 0/0/0, isto e, SEM teto fixo de inodes, com 244 G livres.
+# Mover o trabalho temporario para la elimina a classe inteira em vez de administra-la.
+#
+# SEGURANCA NAO PIORA, MELHORA. O LIMITE DECLARADO acima adverte contra `TMPDIR` num diretorio
+# world-writable sem sticky, porque isso reabre a janela TOCTOU. `$HOME/.cache/tollens/tmp` nao
+# e world-writable: so o dono entra, e o predicado 0700 abaixo continua sendo verificado do
+# mesmo jeito. A dependencia do sticky do pai existia porque o pai era `/tmp` (1777); aqui o pai
+# e o proprio HOME.
+#
+# PRECEDENCIA: `TOLLENS_TMPDIR` (escotilha explicita, para CI ou para forcar /tmp) > HOME
+# gravavel > `${TMPDIR:-/tmp}`. O CI roda em contentor efemero e pode nao ter HOME util; por
+# isso o fallback permanece.
+tollens_tmpdir_base(){
+  if [ -n "${TOLLENS_TMPDIR:-}" ]; then
+    mkdir -p "$TOLLENS_TMPDIR" 2>/dev/null || true
+    [ -d "$TOLLENS_TMPDIR" ] && [ -w "$TOLLENS_TMPDIR" ] && { printf '%s\n' "$TOLLENS_TMPDIR"; return 0; }
+  fi
+  if [ -n "${HOME:-}" ] && [ -d "$HOME" ] && [ -w "$HOME" ]; then
+    local b="$HOME/.cache/tollens/tmp"
+    mkdir -p "$b" 2>/dev/null || true
+    [ -d "$b" ] && [ -w "$b" ] && { printf '%s\n' "$b"; return 0; }
+  fi
+  printf '%s\n' "${TMPDIR:-/tmp}"
+}
+
 tollens_tmpdir_privado(){
   local d
-  d="${TMPDIR:-/tmp}/tollens-$(id -u)"
+  d="$(tollens_tmpdir_base)/tollens-$(id -u)"
   # shellcheck disable=SC2174
   mkdir -p -m 700 "$d" 2>/dev/null || true
   [ -d "$d" ] || return 1

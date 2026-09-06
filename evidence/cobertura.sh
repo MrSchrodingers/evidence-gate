@@ -154,15 +154,18 @@ CHECK=0
 # construcao (`288->287`, isento na CAMADA 2 com a razao). A CAMADA 2 o isenta de precisar de
 # teste; a CAMADA 1 continua contando no denominador, entao o percentual cai sem que exista teste
 # capaz de subi-lo. Medido depois de LD15 cobrir todo o resto do bloco: 98.90.
+# REAPERTADO para 99.0 na onda 25d: LD17 cobre as guardas de caminho VAZIO de `--hunks-file` e
+# `--raw-file` (G78), e o medido subiu para 99.01. Reaperto explicito, como a CAMADA 1 exige -
+# igualdade exata existe justamente para que subida de cobertura nao passe em silencio.
 ALVOS="${COBERTURA_ALVOS:-$(cat <<'EOF'
 evidence/probes/github-ruleset.py:86.0
 evidence/validate-claims.py:81.4
-evidence/validate-literature.py:92.3
+evidence/validate-literature.py:94.6
 evidence/runtime-probes/declared-capabilities.py:92.6
 orchestration/schedule.py:89.3
 evidence/corpus/render.py:93.6
 evidence/validate-adapters.py:69.3
-evidence/lint-delta.py:98.9
+evidence/lint-delta.py:99.0
 EOF
 )}"
 
@@ -182,6 +185,8 @@ EOF
 RAIZES="${COBERTURA_RAIZES:-evidence orchestration execution}"
 
 EXCLUSOES="${COBERTURA_EXCLUSOES:-$(cat <<'EOF'
+evidence/experiments/pareado.sh|arnes de EXPERIMENTO, e esta BLOQUEADO para execucao (G80): o auditor mediu que ele roda o oraculo FORA do namespace e carrega, com exec_module, codigo escrito pelo modelo, com HOME real, credencial legivel e 21 interfaces de rede. Medir cobertura de um arnes que nao pode rodar seria numero sobre codigo morto; e promove-lo a ALVO obrigaria exercita-lo, que e justamente o que esta proibido ate as cinco condicoes de evidence/experiments/RESULTADOS-INVALIDADOS.md serem satisfeitas.
+evidence/probes/ledger-atribuicao.py|probe de LEITURA do ledger, sem ramo que decida veredito de portao: ele agrega e imprime. O piso de decisao existe para codigo cuja falha silenciosa aprova algo; aqui a falha aparece como tabela errada, que o operador ve. Nao e isencao permanente - se algum ramo dele passar a alimentar decisao (por exemplo, alimentar o proprio status.generated.md), vira ALVO com piso medido.
 orchestration/render.py|nao avaliado nesta tarefa: o piso de cobertura de decisao (ADR 0028) fechou a folga do mecanismo ja existente; promover um executavel novo a ALVO exige medir o piso alcancavel dele, investigacao propria, fora do escopo desta correcao pontual
 execution/document-tools/doctool.sh|script shell - coverage.py (branch coverage, esta ferramenta) so mede Python; fora do dialeto medido aqui
 execution/document-tools/probe_sheet.py|nao avaliado nesta tarefa - mesma razao de orchestration/render.py
@@ -216,6 +221,13 @@ EOF
 # NOTA DE FORMATO, aprendida aqui: este heredoc so aceita linhas `caminho|tipo|item|motivo`.
 # Comentario dentro dele vira entrada malformada e derruba dezessete casos de
 # tests/unit/cobertura.sh de uma vez, com diagnostico que aponta para outro lugar.
+# S4/A6 DO REVISOR: `motivo` (e a ANCORA opcional, quinto campo) NAO PODEM CONTER O CARACTER
+# LITERAL `|`. O parser (`linha.split("|", 4)`, mais abaixo no heredoc Python) divide a linha em
+# no maximo 5 campos; um `|` a mais dentro do motivo desloca o resto da linha para o campo de
+# ancora, e a isencao passa a ser recusada por uma ancora ESPURIA que ninguem escreveu de
+# proposito. Medido nesta tarefa: das 43 linhas de ISENCOES hoje, so 2 usam o quinto campo, e
+# nenhuma tem `|` no motivo - sem regressao presente, mas o contrato e este. Se o motivo
+# precisar do caractere, use outro separador dentro do texto (`;`, `-`), nunca `|`.
 # `evidence/corpus/render.py`: os seis itens abaixo sao os ramos de erro de MARCADOR NAO
 # RESOLVIDO em `main()`. Sao inalcancaveis numa arvore conforme por construcao, e nao por
 # falta de teste: `tests/unit/governance-links.py` recusa marcador orfao ANTES de o renderer
@@ -268,15 +280,15 @@ orchestration/schedule.py|ramo|406->408|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->409|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|408->410|heranca-piso-absoluto-2026-08-11
 orchestration/schedule.py|ramo|436->-1|heranca-piso-absoluto-2026-08-11
-evidence/lint-delta.py|ramo|307->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.
-evidence/lint-delta.py|ramo|288->287|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.
+evidence/lint-delta.py|ramo|349->-1|guarda `if __name__ == "__main__"` sem ramo falso alcancavel: o arquivo e sempre executado como programa pelo verify-gate, nunca importado. Cobrir o ramo exigiria importa-lo num teste so para isso, o que mediria o teste e nao o nucleo.|if __name__ == "__main__":
+evidence/lint-delta.py|ramo|330->329|laco interno esgotado sem casar raiz nenhuma: INALCANCAVEL por construcao. `alheios` so recebe diagnostico para o qual `sob_checkout_aninhado` respondeu verdadeiro sobre ESTA mesma lista de raizes, entao o `break` sempre acontece. Cobrir exigiria chamar a funcao com uma lista de raizes diferente da que produziu `alheios` - estado que o programa nao constroi.|for raiz in raizes:
 EOF
 )}"
 
 ABSOLUTO_PENDENTE="${COBERTURA_ABSOLUTO_PENDENTE:-$(cat <<'EOF'
 evidence/probes/github-ruleset.py|arquivo em correcao concorrente por outro agente nesta mesma onda (fora do escopo desta tarefa tocar); 60 itens hoje (36 linhas + 24 ramos, medido nesta sessao) - povoar a isencao agora citaria linhas que a integracao vai deslocar. Reapertar junto com o piso percentual.
 evidence/validate-claims.py|arquivo em correcao concorrente por outro agente nesta mesma onda (fora do escopo desta tarefa tocar); 108 itens hoje (67 linhas + 41 ramos, medido nesta sessao) - mesma razao de evidence/probes/github-ruleset.py.
-evidence/validate-literature.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; 22 itens hoje (12 linhas + 10 ramos, medido nesta sessao) - estender a camada 2 a este arquivo e decisao de quem responde por ele.
+evidence/validate-literature.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; o arquivo triplicou de tamanho na onda 25e (camada de busca delimitada) e a cobertura de decisao subiu de 88,78% para 94,68% com os 15 casos de entrada malformada BD17-BD31; o piso foi reapertado de 92.3 para 94.6 pela propria catraca. Estender a camada 2 (justificativa item a item) a este arquivo continua sendo decisao de quem responde por ele.
 evidence/runtime-probes/declared-capabilities.py|estavel (sem edicao concorrente) mas fora do escopo desta correcao pontual do mecanismo; 21 itens hoje (13 linhas + 8 ramos, medido nesta sessao) - mesma razao de evidence/validate-literature.py.
 evidence/validate-adapters.py|arquivo NOVO da onda 10 (validador de conformidade de adaptador); 130 itens hoje (66 linhas + 64 ramos, medido nesta sessao), quase todos as mensagens de violacao de cada regra do schema. A CAMADA 1 vale integralmente com piso 69.3 medido; estender a CAMADA 2 exigiria uma fixture por regra de schema, o que e trabalho proprio e nao correcao pontual. O piso percentual ja impede regressao silenciosa. tests/mutation/adaptadores.sh mede se o validador DISCRIMINA - mas so em QUATRO regras: revisao independente contou 54 chamadas de erro() no validador contra 4 mutantes MA (MA5 e controle de direcao, nao regra). A frase anterior aqui dizia que o arnes respondia pela pergunta que a cobertura nao responde, e isso era overclaim: ele responde por 4/54. O piso continua defensavel; a JUSTIFICATIVA encolheu para o que de fato mede.
 EOF
@@ -404,10 +416,29 @@ for linha in le_linhas(pendente_path):
     caminho, motivo = linha.split("|", 1)
     pendente[caminho] = motivo
 
+# G67. A chave e POSICIONAL, e o proprio cabecalho deste arquivo nomeia o unico modo em que isso
+# falha ABERTO: um ramo NOVO cair num numero de linha ja isento e herdar justificativa alheia. O
+# mitigante escolhido foi redigir o motivo como INTENCAO, nunca como conteudo - o que funciona
+# para "debito herdado, nao investigado" e NAO funciona para isencao que afirma algo especifico
+# ("guarda `if __name__`", "laco interno sem casar raiz"): essas viram alegacao falsa sobre um
+# ramo diferente, em silencio.
+# ANCORA OPCIONAL, quinto campo: quando presente, e o texto (sem espaco de indentacao) que a
+# linha do arquivo PRECISA ter. Se nao tiver, a isencao e RECUSADA - nao ignorada -, porque
+# isencao que aponta para outro lugar e pior que isencao ausente. Entradas sem ancora seguem
+# valendo como antes; a fragilidade fica opcional em vez de compulsoria. Custo real e conhecido:
+# toda insercao acima de um item ancorado exige reancorar A MAO, e foi isso que aconteceu tres
+# vezes com `evidence/lint-delta.py` nesta onda (224 -> 246 -> 265 -> 307).
 isencoes = {}
+ancoras = {}
 for linha in le_linhas(isencoes_path):
-    caminho, tipo, alvo_item, motivo = linha.split("|", 3)
+    # S4/A6: motivo/ancora nao podem conter `|` - ver NOTA DE FORMATO no cabecalho do heredoc
+    # ISENCOES acima. `split(maxsplit=4)` e posicional; um `|` extra no motivo vira campo 5
+    # (ancora espuria) em vez de continuar dentro do motivo.
+    partes = linha.split("|", 4)
+    caminho, tipo, alvo_item, motivo = partes[:4]
     isencoes.setdefault(caminho, {})[(tipo, alvo_item)] = motivo
+    if len(partes) == 5 and partes[4].strip():
+        ancoras.setdefault(caminho, {})[(tipo, alvo_item)] = partes[4].strip()
 
 with open(cov_path, encoding="utf-8") as f:
     dados = json.load(f)
@@ -447,7 +478,39 @@ for caminho, piso in alvos:
         status_abs = f"PENDENTE ({pendente[caminho]})"
     else:
         isentas = isencoes.get(caminho, {})
-        faltas = []
+        ancoradas = ancoras.get(caminho, {})
+        # ANCORA CONFERIDA CONTRA O FONTE. Uma isencao cujo texto nao bate deixa de valer, e o
+        # relatorio diz o texto encontrado - senao a reancoragem vira adivinhacao.
+        fora_de_lugar = []
+        fonte_erro = None
+        try:
+            fonte = pathlib.Path(caminho).read_text(encoding="utf-8").split("\n")
+        except OSError as exc:
+            fonte = []
+            fonte_erro = str(exc)
+        if fonte_erro is not None and ancoradas:
+            # A6 DO REVISOR. Fonte ilegivel virava `fonte=[]` -> `continue` no laco abaixo -
+            # SILENCIO: a ancora de cada isencao deste arquivo nunca era conferida, e a isencao
+            # voltava a valer so pelo numero de linha, que e exatamente o modo de falha que a
+            # ancora existe para fechar. Reproduzido: `read_text` de caminho relativo fora da
+            # raiz -> OSError -> `fonte=[]` -> `continue`, isencao ancorada passava intocada.
+            # Agora fonte ilegivel com ancora declarada REPROVA (entra em `faltas`), nunca passa.
+            for chave in sorted(ancoradas):
+                fora_de_lugar.append(
+                    f"{chave[0]} {chave[1]}: fonte ilegivel ({fonte_erro}) - ancora nao pode ser conferida"
+                )
+                isentas = {k: v for k, v in isentas.items() if k != chave}
+        else:
+            for chave, esperado in sorted(ancoradas.items()):
+                n = chave[1].split("->")[0]
+                if not n.isdigit():
+                    continue
+                i = int(n)
+                achado = fonte[i - 1].strip() if 1 <= i <= len(fonte) else "<linha inexistente>"
+                if achado != esperado:
+                    fora_de_lugar.append(f"{chave[0]} {chave[1]}: ancora esperava {esperado!r}, achou {achado!r}")
+                    isentas = {k: v for k, v in isentas.items() if k != chave}
+        faltas = list(fora_de_lugar)
         for l in missing_lines:
             chave = ("linha", str(l))
             if chave not in isentas:

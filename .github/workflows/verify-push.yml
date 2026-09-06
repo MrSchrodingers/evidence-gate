@@ -155,6 +155,22 @@ jobs:
         run: bash tests/unit/capabilities.sh
       - name: regressao do gate
         run: bash tests/unit/regressao-gate.sh
+      # ONDA 25c. `docs/status.generated.md` publicava `lint-delta (auto) | ? | NAO executado no
+      # CI` e o mesmo para `verify-gate-delta` - as quatro suites do ramo que a onda inteira
+      # construiu rodavam SO na estacao do autor, entao `verify-pr` verde nao falava sobre elas.
+      # Mesma classe do achado F3 da onda 15, que ja tinha decidido a saida: executar, nao
+      # ajustar o rotulo. Custo MEDIDO antes de decidir, nesta maquina: 6,91 s + 12,02 s +
+      # 93,65 s + 103,83 s = 3min37 num verify-pr de ~25min. As duas unitarias dependem de `ruff`
+      # no PATH e declaram NAO VERIFICADO (exit 2) se ele faltar - o passo de versoes acima ja
+      # exige `ruff --version`, entao ausencia vira falha visivel e nao verde vazio.
+      - name: nucleo que julga o delta
+        run: bash tests/unit/lint-delta.sh
+      - name: delta ponta a ponta (pelo hook)
+        run: bash tests/unit/delta-e2e.sh
+      - name: validacao por mutacao (nucleo do delta)
+        run: bash tests/mutation/lint-delta.sh
+      - name: validacao por mutacao (executor do delta)
+        run: bash tests/mutation/verify-gate-delta.sh
       - name: validacao por mutacao (gate)
         run: bash tests/mutation/run.sh
       - name: validacao por mutacao (contrato de subagente)

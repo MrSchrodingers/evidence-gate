@@ -88,6 +88,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 ACTIVE="$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)"
+SESSAO="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 ADAPTERS="${CLAUDE_ADAPTERS_DIR:-$(cd "$HERE/../../execution/adapters/code" 2>/dev/null && pwd)}"
@@ -186,11 +187,30 @@ fi
 # casamento de extensao logo abaixo compara o fim da string, e `"...\303\247.py"` nao casa
 # `.py` do jeito que o arquivo real casaria, entao o ADAPTADOR INTEIRO pode nao ser selecionado.
 # Nao e um diagnostico perdido: e nenhum diagnostico produzido.
-CHANGED="$( { git -C "$ROOT" -c core.quotePath=false diff --name-only HEAD 2>/dev/null
-              git -C "$ROOT" -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null
-              [ -n "$DIFFBASE" ] && git -C "$ROOT" -c core.quotePath=false diff --name-only "$DIFFBASE" HEAD 2>/dev/null
-            } | sed '/^$/d' | sort -u )"
+# C2 DA REVISAO: `core.quotePath=false` NAO BASTA. Ele desliga a citacao de nao-ASCII, mas o git
+# CITA SEMPRE caminho que contenha aspas, barra invertida ou caractere de controle. Medido nesta
+# maquina: `ls-files --others` com quotePath=false devolve `acentuacao.py` cru e devolve
+# `"com\ttab.py"` e `"com\"aspas.py"` CITADOS. A forma citada termina em `.py"` e nao casa o
+# `case` de extensao logo abaixo: o adaptador inteiro deixa de ser selecionado e o portao sai 0
+# mudo. Pior, `[ -f "$ROOT/$f" ]` responde falso para a forma citada, o digest do arquivo nao
+# entra no SNAPSHOT, e o `pass` em cache passa a valer para QUALQUER conteudo daquele arquivo -
+# bypass permanente. Reproduzido ponta a ponta contra o hook em vigor.
+# `-z` e a unica forma de obter o caminho CRU: com ele o git nao cita nada e separa por NUL.
+# `tr '\n' '\001'` antes de `tr '\0' '\n'` preserva o registro quando o proprio nome contem
+# newline - sem isso um nome com quebra viraria dois caminhos falsos. O `\001` resultante nao
+# existe no disco, e o bloco seguinte declara a lacuna em vez de calar.
+_gitz(){ git -C "$ROOT" -c core.quotePath=false "$@" 2>/dev/null; }
+CHANGED="$( { _gitz diff -z --name-only HEAD
+              _gitz ls-files -z --others --exclude-standard
+              [ -n "$DIFFBASE" ] && _gitz diff -z --name-only "$DIFFBASE" HEAD
+            } | tr '\n' '\001' | tr '\0' '\n' | sed '/^$/d' | sort -u )"
 [ -n "$CHANGED" ] || exit 0
+# Nome com newline literal: o registro foi preservado, mas o caminho nao resolve no disco. Isso
+# NUNCA pode virar silencio - vira lacuna, e o turno segue julgado pelo resto.
+if printf '%s' "$CHANGED" | grep -q "$(printf '\001')"; then
+  LACUNAS="$LACUNAS
+  - caminho com QUEBRA DE LINHA no nome entre os arquivos alterados. Esses arquivos NAO foram julgados: o caminho nao resolve no disco. Renomeie-os para que o portao possa analisa-los."
+fi
 
 # --- G7: tabela ausente e fail-closed ---
 if [ ! -d "$ADAPTERS" ] || ! ls "$ADAPTERS"/*.json >/dev/null 2>&1; then
@@ -235,6 +255,13 @@ for a in "$ADAPTERS"/*.json; do
     fi
   done < <(jq -r '.extensions[]? // empty' "$a" 2>/dev/null)
 done
+# C1/C4: as extensoes dos adaptadores APLICAVEIS, usadas adiante pela guarda de concordancia
+# entre "o que mudou" e "o mapa de linhas tocadas". Coletadas aqui porque e onde APLICAVEIS
+# acabou de ser decidido; usadas em um unico ponto, o parser de hunks.
+EXTS_APLIC=""
+if [ "${#APLICAVEIS[@]}" -gt 0 ]; then
+  EXTS_APLIC="$(for _a in "${APLICAVEIS[@]}"; do jq -r '.extensions[]? // empty' "$_a" 2>/dev/null; done | sort -u)"
+fi
 if [ "${#APLICAVEIS[@]}" -eq 0 ]; then
   [ -n "$EXECUTORES" ] && reporta "GATE - LACUNA DE COBERTURA: nenhum analisador seguro para o que mudou.$EXECUTORES
 Nenhuma verificacao rodou. Estado: NAO VERIFICADO / NOT_VERIFIED.
@@ -310,10 +337,53 @@ sha(){ sha256sum 2>/dev/null | cut -c1-32; }
 SNAPSHOT="$( {
     printf 'head %s\n' "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo none)"
     [ -n "$UPSTREAM" ] && git -C "$ROOT" rev-list "${UPSTREAM}..HEAD" 2>/dev/null
-    printf '%s\n' "$CHANGED" | while IFS= read -r f; do
-      if [ -f "$ROOT/$f" ]; then printf '%s %s\n' "$f" "$(sha256sum "$ROOT/$f" 2>/dev/null | cut -d' ' -f1)"
-      else printf '%s absent\n' "$f"; fi
-    done
+    # CUSTO MEDIDO, e ele era o item dominante do hook inteiro. A forma anterior era um laco
+    # com `$(sha256sum ... | cut ...)` POR ARQUIVO: tres criacoes de processo por entrada de
+    # CHANGED (subshell + sha256sum + cut). Em /var/www/amaral-intern-hub, |CHANGED|=2717, isso
+    # e ~8150 processos por parada, e o bloco custava 26,5-43,4 s (mediana 36,9 s). Ele roda
+    # ANTES da consulta ao cache - ou seja, era pago inteiro mesmo quando nada mudou: 96% do
+    # custo de uma parada com cache HIT. Para comparar, `ruff` - o unico componente que de fato
+    # julga - custava 0,32 s, 1,0% do total.
+    #
+    # A forma em lote faz DUAS chamadas: uma para particionar e outra para hashear. Medido no
+    # mesmo repositorio: 60,35 s -> 1,85 s, com o digest identico.
+    #
+    # A5 DO REFUTADOR - A EQUIVALENCIA E QUALIFICADA, NAO GERAL, e a primeira redacao deste
+    # comentario afirmava o contrario. O digest se preserva para caminhos SIMPLES; ele MUDA em
+    # dois casos, ambos medidos: (i) caminho com barra invertida, porque a forma antiga embutia o
+    # `\` de escape do coreutils DENTRO do valor do hash - o valor antigo estava corrompido e
+    # `--zero` o corrige; (ii) caminho citado pelo git, efeito deliberado do `-z` de C2. Nos dois
+    # casos a mudanca e CORRECAO, mas o efeito pratico e o mesmo: o `pass` em cache daquele
+    # repositorio deixa de valer e a proxima parada reexecuta. Repositorio sem caminho exotico
+    # nao perde cache nenhum. Igualdade medida em um repositorio nao e equivalencia - dizer que
+    # era seria o overclaim que este arquivo registra em outros pontos.
+    #
+    # POR QUE `stat -L` ANTES DE HASHEAR, e nao `sha256sum` direto na lista: `[ -f ]` segue
+    # symlink e exige arquivo REGULAR. `sha256sum` num diretorio falha (mesma particao, por
+    # acidente), mas num FIFO BLOQUEIA - e o hook penduraria. A particao explicita evita isso.
+    #
+    # `regular empty file` E NECESSARIO NO PADRAO. `stat -c %F` devolve `regular file` para
+    # arquivo com conteudo e `regular empty file` para arquivo de tamanho zero. A primeira versao
+    # desta mudanca filtrava so `regular file`, e o teste de equivalencia REPROVOU: todo arquivo
+    # vazio virava `absent` e o digest divergia. Sem aquele teste, a otimizacao teria entrado
+    # ignorando em silencio uma classe inteira de arquivos.
+    #
+    # `--zero` no sha256sum: sem ele o coreutils ESCAPA nome com barra invertida ou newline
+    # (prefixa `\\`), e o caminho emitido nao casaria a chave vinda de CHANGED.
+    {
+      printf '%s\n' "$CHANGED" | while IFS= read -r f; do
+        [ -n "$f" ] && printf '%s/%s\0' "$ROOT" "$f"
+      done \
+        | xargs -0 -r stat -L -c '%F|%n' 2>/dev/null \
+        | sed -n 's/^regular \(empty \)\?file|//p' | tr '\n' '\0' \
+        | xargs -0 -r sha256sum --zero 2>/dev/null | tr '\0' '\n'
+      printf '\034\n'
+      printf '%s\n' "$CHANGED"
+    } | awk -v root="$ROOT" '
+        $0=="\034" { sep=1; next }
+        !sep { i=index($0,"  "); if(i){ m[substr($0,i+2)]=substr($0,1,i-1) } ; next }
+        $0=="" { next }
+        { p=root "/" $0; print $0, (p in m ? m[p] : "absent") }'
   } | sha )"
 VERIFIERS="$(for a in "${APLICAVEIS[@]}"; do cat "$a"; done | sha)"
 # G11: identidade do AMBIENTE, nao do caminho. Hash so do path nao muda quando o binario e
@@ -341,17 +411,118 @@ fi
 KEY="$(printf '%s' "$ROOT" | sha)"
 LEDGER="$LEDGER_DIR/${KEY}.jsonl"
 mkdir -p "$LEDGER_DIR" 2>/dev/null || true
-PRIOR="$(grep -F "\"snapshot\":\"$SNAPSHOT\"" "$LEDGER" 2>/dev/null \
-         | grep -F "\"verifiers\":\"$VERIFIERS\"" | grep -F "\"env\":\"$ENVD\"" | tail -1)"
+IDENTICAS="$(grep -F "\"snapshot\":\"$SNAPSHOT\"" "$LEDGER" 2>/dev/null \
+         | grep -F "\"verifiers\":\"$VERIFIERS\"" | grep -F "\"env\":\"$ENVD\"")"
+PRIOR="$(printf '%s' "$IDENTICAS" | tail -1)"
 if [ -n "$PRIOR" ] && [ "$(printf '%s' "$PRIOR" | jq -r '.verdict' 2>/dev/null)" = "pass" ]; then
   exit 0   # mesmo snapshot, mesmos verificadores, mesmo ambiente, veredito aprovado
 fi
+
+# --- G77: NEGATIVA REPETIDA E SINAL, NAO ROTINA ---
+#
+# Medido no ledger em 2026-09-02, sobre 8.600 paradas com veredito: 1.992 (23,2%) sao reexecucoes
+# ESTRITAMENTE redundantes - mesmo snapshot, mesmos verificadores, mesmo ambiente, e o veredito
+# anterior ja era `fail`. Um unico snapshot em /home/ti/debthub-wt-phone3 foi julgado 336 vezes,
+# todas `fail`, em dois dias.
+#
+# A leitura barata desse numero e "cache o `fail`". Ela esta errada por consequencia assimetrica:
+# `pass` cacheado que estivesse errado libera UM turno; `fail` cacheado que estivesse errado
+# bloqueia o repositorio ATE a arvore mudar, e a arvore so muda se o ator agir - que e exatamente
+# o que ele nao esta conseguindo fazer. Cachear ali fecharia o laco POR FORA, mantendo a causa.
+#
+# A causa e outra: o ator recebe a MESMA negativa e nao consegue agir sobre ela. Repetir a
+# mensagem pela 336a vez nao e verificacao, e ruido com custo. Entao a partir do limiar o gate
+# muda o QUE DIZ - nomeia a repeticao, o numero de tentativas e as unicas saidas reais - em vez de
+# repetir. O veredito NAO muda: continua bloqueando, porque o defeito continua la.
+#
+# O limiar e 3 e a escolha e declarada: 1 seria a primeira parada legitima (o ator ainda nao viu a
+# mensagem), 2 e a tentativa honesta de corrigir, e a partir da 3a a evidencia e de que a mensagem
+# nao esta bastando. Nao ha experimento por tras deste numero - e um piso conservador, e trocar
+# por outro exige medir, nao opinar.
+# A2 DO REVISOR: `grep -c '"verdict":"fail"'` contava so `fail`, mas a mensagem abaixo afirma
+# "ESTA E A Na PARADA COM ESTE MESMO ESTADO DE ARVORE" - sobre o ESTADO (snapshot+verifiers+env),
+# nao sobre qual foi o veredito. Medido com ledger sintetico de 2 `gap` + 3 `fail` identicos:
+# paradas reais = 5, contagem antiga = 3, a mensagem diria "4a parada" quando a real seria a 6a.
+# ESCOLHA: a contagem passa a refletir a frase (conta `fail` E `gap`; `pass` do mesmo estado nunca
+# chega aqui - sai por cache na linha ~347), em vez de estreitar a frase para "so fail". Motivo:
+# `gap` e parada tao repetida quanto `fail` quando nada muda entre uma parada e a seguinte (mesmo
+# snapshot, mesmos verificadores, mesmo ambiente) - a causa de G77 (ator recebe a mesma resposta e
+# nao consegue agir) vale para as duas; estreitar a frase esconderia do ator paradas que ele de fato
+# ja sofreu, so que com o motivo diferente.
+# O predicado exige REGISTRO JSON VALIDO, nao `grep`: `grep -F`, usado para montar $IDENTICAS
+# acima, casa SUBSTRING - uma linha TRUNCADA por escrita concorrente (o ledger e `>>` sem lock
+# entre processos) pode conter o trecho procurado sem ser um JSON valido, e entrava na contagem
+# como parada real. `jq -R 'fromjson?'` descarta em silencio o que nao parseia como objeto.
+TENTATIVAS_IDENTICAS=0
+TENTATIVAS_NA_SESSAO=0   # `set -u`: as DUAS precisam existir antes do `if`
+if [ -n "$IDENTICAS" ]; then
+  # C2 DO REVISOR, e o defeito era grave: a contagem era CUMULATIVA no ledger, que e espaco de
+  # escrita do ator governado. Duas consequencias MEDIDAS pelo revisor nesta maquina: (i) anexar
+  # seis linhas ao ledger desligava o bloqueio - antes de G81 forjar o ledger mudava so o TEXTO,
+  # depois passou a mudar o VEREDITO; (ii) 4 repositorios ja acumulavam 6+ falhas identicas, entao
+  # uma sessao NOVA recebia o portao nao-bloqueante na PRIMEIRA parada, sem nunca ter sido barrada.
+  # A contagem passa a ser POR SESSAO: `session_id` vem do EVENTO, nao do arquivo. Continua
+  # forjavel dentro da sessao, mas a escotilha deixa de ser herdada por quem nunca viu um bloqueio,
+  # e volta a exigir que o ator de fato tenha batido no portao seis vezes AQUI.
+  # DOIS CONTADORES, com niveis de confianca DIFERENTES, e misturar os dois foi erro meu:
+  #
+  #   TENTATIVAS_IDENTICAS - CUMULATIVO no ledger. Alimenta so a MENSAGEM de laco (G77). Forjar
+  #     o ledger aqui deixa o aviso mais verboso e nada mais: nao muda veredito. Vale contar tudo,
+  #     inclusive paradas de sessoes anteriores, porque a informacao "esta arvore ja bateu N vezes
+  #     neste portao" e verdadeira e util independentemente de quem bateu.
+  #
+  #   TENTATIVAS_NA_SESSAO - so paradas com o `session_id` DESTE evento. Alimenta a ESCOTILHA
+  #     (G81), que muda o VEREDITO. C2 do revisor mediu as duas consequencias de usar o cumulativo
+  #     aqui: anexar seis linhas ao ledger desligava o bloqueio, e 4 repositorios desta maquina ja
+  #     acumulavam 6+, entao sessao NOVA recebia o portao nao-bloqueante na PRIMEIRA parada.
+  #     Sem `session_id` no evento a contagem fica 0 e a escotilha NAO abre - fail-closed: o
+  #     portao continua barrando, que e o comportamento anterior a G81.
+  TENTATIVAS_IDENTICAS="$(printf '%s\n' "$IDENTICAS" \
+    | jq -Rc 'fromjson? | select(type=="object") | select(.verdict=="fail" or .verdict=="gap") | 1' 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  # C3 DA REVISAO, e o ENQUADRAMENTO IMPORTA MAIS QUE A CORRECAO. O revisor mostrou que
+  # `for i in 1 2 3 4 5; do tail -1 "$L" >> "$L"; done` compra a escotilha. Reproduzido aqui, e
+  # confirmado. Mas ao reproduzir, mediu-se algo PIOR e que a revisao nao apontou: anexar ao
+  # ledger uma linha `pass` com o snapshot atual, no formato exato (JSON compacto, sem espaco
+  # depois dos dois-pontos, que e o que `grep -F` de G1 casa), faz o portao sair 0 direto pelo
+  # cache. Medido: rc=0. Ou seja, a escotilha nao e uma porta a mais - ela e uma janela numa
+  # parede que ja tinha porta.
+  #
+  # LIMITE DECLARADO, e ele e do MODELO DE AMEACA, nao deste bloco: o ledger vive em
+  # $LEDGER_DIR, dentro do HOME do ator governado, e o hook roda COM A IDENTIDADE DESSE ATOR.
+  # Nao existe, sem separacao de privilegio, defesa deste arquivo contra quem executa o proprio
+  # hook - assinar nao ajuda, porque a chave teria de ser legivel por quem assina. Portanto:
+  # O CACHE E A ESCOTILHA SAO PROTECAO CONTRA ERRO E REPETICAO ACIDENTAL, NAO CONTRA ATOR
+  # ADVERSARIO. Quem precisa da segunda garantia usa a fronteira root-owned (ADR 0026), que e
+  # onde a politica em vigor de fato mora.
+  #
+  # O QUE DA PARA FECHAR SEM ROOT, e esta feito abaixo: contar apenas registros DISTINTOS. A
+  # forja de um comando duplica linhas IDENTICAS, e `sort -u` as reduz a uma. Isso nao detem um
+  # adversario (basta variar o `ts`), mas fecha a duplicacao acidental - append concorrente,
+  # replay de arquivo, copia de ledger entre arvores - que e o caso realista.
+  TENTATIVAS_NA_SESSAO="$(printf '%s\n' "$IDENTICAS" \
+    | sort -u \
+    | jq -Rc --arg n "${SESSAO:-}" 'fromjson? | select(type=="object") | select(.verdict=="fail" or .verdict=="gap") | select(($n != "") and (.session == $n)) | 1' 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  case "$TENTATIVAS_NA_SESSAO" in ''|*[!0-9]*) TENTATIVAS_NA_SESSAO=0 ;; esac
+fi
+case "$TENTATIVAS_IDENTICAS" in ''|*[!0-9]*) TENTATIVAS_IDENTICAS=0 ;; esac
 # veredito anterior `fail` ou `gap` NAO e reutilizado: reexecuta. Nunca vira verde por cache.
 
 registra(){  # $1=verdict $2=detalhe
-  jq -cn --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" --arg s "$SNAPSHOT" \
-         --arg v "$VERIFIERS" --arg e "$ENVD" --arg d "$1" --arg m "$2" \
-         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m}' >> "$LEDGER" 2>/dev/null || true
+  # C2 DO REVISOR: `session` entra no registro para que a escotilha de G81 possa contar paradas
+  # DESTA sessao em vez da contagem CUMULATIVA do ledger. Registros antigos nao tem o campo e sao
+  # tratados como de outra sessao - conservador, porque so encurta a contagem.
+  # RESOLUCAO DE SUBSEGUNDO, e ela e REQUISITO da deduplicacao de G77/C3, nao estetica. Com `ts`
+  # em segundos, duas paradas reais no MESMO segundo produzem registros byte-identicos, e o
+  # `sort -u` do contador as colapsaria - a escotilha legitima deixaria de abrir. `%N` da
+  # nanossegundos no date do GNU; se nao expandir (outra implementacao), o fallback devolve o
+  # formato anterior e o unico efeito e o colapso ocasional, que e fail-closed (barra mais).
+  _TS="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ 2>/dev/null || true)"
+  case "$_TS" in *%N*|"") _TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;; esac
+  jq -cn --arg t "$_TS" --arg s "$SNAPSHOT" \
+         --arg v "$VERIFIERS" --arg e "$ENVD" --arg d "$1" --arg m "$2" --arg n "${SESSAO:-}" \
+         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m,session:$n}' >> "$LEDGER" 2>/dev/null || true
 }
 
 # --- G5: execucao por command + args, sem shell ---
@@ -437,17 +608,207 @@ for a in "${APLICAVEIS[@]}"; do
     #       pipeline (ramo B1, desta onda) nao tinha, entao arquivo novo com nome nao-ASCII
     #       entrava como `"acentua\303\247.py"` e a chave do hunk nunca casava o diagnostico.
     #       Medido: nome acentuado EXIT=0, o mesmo arquivo em ASCII EXIT=2.
-    HUNKS="$(cd "$ROOT" && { git -c core.quotePath=false diff -U0 \
+    # G82: `untracked` NAO E "criado neste turno". A regra B1 dava a todo arquivo nao rastreado a
+    # faixa `[1, 10^9]` - o arquivo inteiro como trabalho do turno - com a premissa de que `Write`
+    # e `Edit` nao indexam, entao arquivo novo aparece assim. A premissa cobre o caso comum e e
+    # FALSA no geral: `untracked` significa "o git nao rastreia", e nada mais.
+    #
+    # MEDIDO em /var/www/amaral-intern-hub, 2026-09-03: 400 arquivos untracked em
+    # `spokes/jusgrok/`, TODOS com mtime de 2026-07-17 - 48 dias. O portao acusava 79 achados de
+    # higiene deles como sendo do turno, num turno cujo trabalho real (PR #150) estava noutros 8
+    # arquivos que passavam limpo. O ator escalou corretamente e o portao seguiu barrando.
+    #
+    # DISCRIMINANTE, e ele usa dado que o portao JA TEM: a hora da parada anterior neste
+    # repositorio, gravada no ledger. Arquivo cujo mtime e ANTERIOR a ela nao pode ter sido
+    # escrito neste turno. Nao e heuristica de nome nem de diretorio - e ordem temporal.
+    #
+    # LIMITE DECLARADO: na PRIMEIRA parada de um repositorio nao ha referencia, e ai o
+    # comportamento antigo vale (tudo untracked conta como do turno). Fail-closed: erra para o
+    # lado de julgar demais, que e ruido, e nao para o de aprovar em silencio.
+    # SEGUNDO LIMITE: `mtime` e falsificavel pelo ator governado (`touch`). Isto NAO e controle de
+    # seguranca - e correcao de ATRIBUICAO. Quebra por codigo declarado continua sendo julgada na
+    # arvore inteira contra a catraca, sem depender de hunk nenhum, entao um arquivo antigo que
+    # NAO PARSEIA segue bloqueando.
+    # C1 DO REVISOR, e a primeira correcao dele ainda estava errada pela MESMA raiz.
+    #
+    # Tentativa 1: `tail -1` do ledger (parada ANTERIOR). Medido: arquivo escrito NESTE turno,
+    # parada 1 rc=2 com o F401 citado, parada 2 rc=0 com o F401 sumido, ledger `fail pass` - e o
+    # `pass` fica em CACHE PERMANENTE. Nao corrigia atribuicao: desligava o ramo B1 na 2a parada.
+    # Tentativa 2: `head -1` (PRIMEIRA parada). Medido: identico. rc=2, rc=0, rc=0.
+    #
+    # A RAIZ e que QUALQUER referencia tirada do ledger e posterior a escrita, porque o portao so
+    # roda em PARADAS - e a parada acontece depois de o arquivo existir. Nao ha `head`/`tail` que
+    # resolva: a fonte esta errada.
+    #
+    # A referencia precisa PRECEDER o turno, e o evento traz uma: `transcript_path`. O arquivo de
+    # transcrito nasce com a SESSAO. Medido nesta maquina: `stat -c %W` devolve 1788390926
+    # (2026-09-02 20:15) enquanto mtime e agora - birth time utilizavel.
+    # Semantica resultante: "escrito antes desta SESSAO comecar" e WIP herdado; escrito durante a
+    # sessao e trabalho dela, e continua julgado em toda parada. E a leitura que o caso motivador
+    # pede (jusgrok, 48 dias) sem anular B1 (arquivo novo do turno).
+    #
+    # SEM birth time (filesystem que nao suporta, ou transcrito ausente) a exclusao NAO AGE e tudo
+    # untracked volta a ser julgado. Fail-closed: erra para julgar demais, nunca para aprovar.
+    REF_EPOCH=""
+    _ref_ts=""
+    _tp="$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+    if [ -n "$_tp" ] && [ -f "$_tp" ]; then
+      _w="$(stat -c %W "$_tp" 2>/dev/null || echo 0)"
+      case "$_w" in ''|*[!0-9]*) _w=0 ;; esac
+      if [ "$_w" -gt 0 ]; then
+        REF_EPOCH="$_w"
+        _ref_ts="inicio da sessao ($(date -u -d "@$_w" '+%Y-%m-%dT%H:%M:%SZ'))"
+      fi
+    fi
+    # A2 DO REVISOR: referencia no futuro (relogio torto) desligaria TODA a higiene de untracked.
+    if [ -n "$REF_EPOCH" ] && [ "$REF_EPOCH" -gt "$(date +%s)" ]; then REF_EPOCH=""; _ref_ts=""; fi
+    # C1/C4: canal de divergencia do parser. mktemp que falha NAO pode virar `2>/dev/null`
+    # implicito - a mesma licao de G78. Falha aqui e lacuna declarada, nunca aprovacao.
+    DIVERGF="$(mktemp 2>/dev/null || true)"
+    # C2: mesma correcao de CHANGED - `-z` para caminho cru. A chave que sai daqui vira chave do
+    # mapa de hunks, e o diagnostico do analisador traz o nome REAL: se a chave vier citada, o
+    # hunk nunca casa e a higiene do arquivo escapa em silencio.
+    # CUSTO MEDIDO: a forma anterior chamava `stat -c %Y` POR ARQUIVO nao rastreado, dentro de
+    # uma substituicao de comando. Em /var/www/amaral-intern-hub sao 2693 arquivos, ~5400
+    # processos, e o bloco custava 9,2-39,9 s por parada (mediana 15,8 s) - 35% do custo de uma
+    # parada com cache MISS. A pendencia A3 estimava "+9 a 24 s"; a medicao confirmou a ordem de
+    # grandeza e mostrou a cauda mais longa.
+    #
+    # A forma em lote faz UMA chamada `stat` que traz tipo e mtime juntos. Medido isoladamente:
+    # 15,8 s -> 0,125 s, com a MESMA particao (2691 PREEXISTENTE nos dois casos).
+    #
+    # `%F` E NECESSARIO junto do `%Y`, e a razao esta medida: `git ls-files --others` devolve
+    # DIRETORIO quando ha checkout aninhado colapsado (`baseline/`,
+    # `.worktrees/datalake-juridico-analytics/` naquela arvore). `[ -f ]` desreferencia e exige
+    # arquivo regular, entao respondia falso para os dois; `stat -c %Y` sozinho responde e os
+    # classificaria como PREEXISTENTE - 2693 em vez de 2691. Filtrar por `regular` replica a
+    # particao antiga exatamente. `regular empty file` entra pelo mesmo motivo de C1.
+    #
+    # SEM REF_EPOCH nao ha discriminante: pula o `stat` inteiro e tudo volta a ser UNTRACKED.
+    # Fail-closed e, de quebra, o caminho mais barato.
+    UNTRACKED_LISTA="$( cd "$ROOT" || exit 0
+      _UL="$(git -c core.quotePath=false ls-files -z --others --exclude-standard 2>/dev/null \
+             | tr '\n' '\001' | tr '\0' '\n' | sed '/^$/d')"
+      if [ -z "$REF_EPOCH" ]; then
+        printf '%s\n' "$_UL" | sed -n 's/^/UNTRACKED /p'
+      else
+        {
+          # A2 DO REFUTADOR: a conversao para lote trocou `lstat` por `stat -L` e, com isso,
+          # o mtime do LINK pelo mtime do ALVO. Medido: symlink nao rastreado criado NESTA sessao
+          # apontando para arquivo antigo passava de UNTRACKED para PREEXISTENTE, isto e, tinha a
+          # higiene EXCLUIDA - silencio novo, introduzido por uma otimizacao que reivindicava
+          # equivalencia. O predicado antigo era `[ -f "$ROOT/$_f" ]` (segue o link, exige
+          # REGULAR) seguido de `stat -c %Y` (NAO segue o link). Sao duas perguntas diferentes
+          # sobre o mesmo caminho, e por isso sao duas chamadas: `-L` decide o TIPO, sem `-L`
+          # decide a IDADE.
+          printf '%s\n' "$_UL" | while IFS= read -r _f; do
+            [ -n "$_f" ] && printf '%s/%s\0' "$ROOT" "$_f"
+          done | xargs -0 -r stat -L -c 'T|%F|%n' 2>/dev/null | grep -a '^T|regular'
+          printf '%s\n' "$_UL" | while IFS= read -r _f; do
+            [ -n "$_f" ] && printf '%s/%s\0' "$ROOT" "$_f"
+          done | xargs -0 -r stat -c 'M|%Y|%n' 2>/dev/null
+          printf '\034\n'
+          printf '%s\n' "$_UL"
+        } | awk -v root="$ROOT" -v ref="$REF_EPOCH" '
+            $0=="\034" { sep=1; next }
+            !sep { k=substr($0,1,1); rest=substr($0,3)
+                   i=index(rest,"|"); v=substr(rest,1,i-1); nome=substr(rest,i+1)
+                   if (k=="T") reg[nome]=1; else mt[nome]=v
+                   next }
+            $0=="" { next }
+            { p=root "/" $0
+              if ((p in reg) && (p in mt) && (mt[p]+0) < (ref+0)) print "PREEXISTENTE " $0
+              else print "UNTRACKED " $0 }'
+      fi )"
+    N_PREEXISTENTE="$(printf '%s\n' "$UNTRACKED_LISTA" | grep -c '^PREEXISTENTE ' || true)"
+    case "$N_PREEXISTENTE" in ''|*[!0-9]*) N_PREEXISTENTE=0 ;; esac
+    # C1/C4: O MAPA PRECISA CONCORDAR COM O QUE MUDOU, NAO SO SER UM JSON.
+    # Reproduzido contra o hook em vigor: `printf '*.py -diff' > .gitattributes` faz `git diff`
+    # emitir "Binary files a/a.py and b/a.py differ" - ZERO hunks. O parser roda, imprime `{}`,
+    # e `{}` E um objeto valido: a guarda de tipo nao dispara, toda a higiene sai do julgamento,
+    # o portao sai 0 com stdout VAZIO e grava `pass` - que fica em cache. Uma linha em arquivo
+    # versionado, escrita pelo proprio ator governado, desliga o portao em silencio. Medido:
+    # controle (sem .gitattributes) rc=2 `Reprovaram: python-analyzer`; ataque rc=0, 0 bytes.
+    # A MESMA falha vem de qualquer causa de diff vazio - git antigo que nao conhece
+    # `--output-indicator-*` sai 129 e o `2>/dev/null` engole (C4 da revisao).
+    #
+    # A raiz e que a guarda perguntava "isto e um objeto?" quando a pergunta e "este mapa cobre
+    # os arquivos que o git diz que mudaram?". `--numstat` responde a segunda: ele lista o que
+    # mudou COM contagem de linhas adicionadas, e marca `-` para o que o git tratou como
+    # binario. Arquivo do ecossistema com linha adicionada, ou tratado como binario, TEM de
+    # aparecer no mapa. Se nao aparece, o escopo se perdeu - e a resposta e fail-closed: faixa
+    # TOTAL (como untracked novo) mais lacuna declarada, nunca silencio.
+    #
+    # ORDEM DO STREAM: metadados e untracked vem ANTES do diff, e o parser para de aceitar
+    # metadado na primeira linha `diff --git`. Sem isso, uma linha de CONTEUDO comecando com
+    # `NUMSTAT ` seria lida como metadado - injecao pelo dado, a classe que os
+    # `--output-indicator-*` ja fecham para `+++ b/`.
+    # A8 DO REFUTADOR: `diff.noprefix`, `diff.mnemonicPrefix` e `diff.dstPrefix` sao config de
+    # USUARIO e mudam o cabecalho `+++ b/`. Com elas, nenhum arquivo casa o parser e TODOS caem
+    # na divergencia - fail-closed, mas com causa mal atribuida. Fixadas no comando.
+    HUNKS="$(cd "$ROOT" && { printf '%s\n' "$EXTS_APLIC" | sed -e '/^$/d' -e 's/^/EXT /'; \
+             git -c core.quotePath=false diff -z --numstat HEAD 2>/dev/null \
+               | tr '\n' '\001' | tr '\0' '\n' | sed 's/^/NUMSTAT /'; \
+             printf '%s\n' "$UNTRACKED_LISTA"; \
+             git -c core.quotePath=false -c diff.noprefix=false \
+                 -c diff.mnemonicPrefix=false -c diff.srcPrefix=a/ -c diff.dstPrefix=b/ diff -U0 \
                --output-indicator-new="$(printf '\001')" \
                --output-indicator-old="$(printf '\002')" \
-               --output-indicator-context="$(printf '\003')" HEAD 2>/dev/null; \
-             git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null | sed 's|^|UNTRACKED |'; } | python3 -c '
+               --output-indicator-context="$(printf '\003')" HEAD 2>/dev/null; } | python3 -c '
 import sys,re,json,collections
 h=collections.defaultdict(list); f=None
-for l in sys.stdin:
+exts=[]; esperados={}; em_diff=False; pend=0; pend_add=None
+# G74. `for l in sys.stdin` decodifica UTF-8 e MORRE em byte que nao seja - e diff carrega o
+# conteudo do arquivo, entao qualquer fonte em latin-1 derruba o parser. O executor engolia o
+# erro (`2>/dev/null`) e caia em `HUNKS={}`, que nao e "nada foi tocado": e o valor MAIS
+# PERMISSIVO possivel, porque nenhum diagnostico cai em hunk nenhum e TODA a higiene e ignorada.
+# Medido em /var/www/amaral-intern-hub, o repositorio que justificou esta onda: byte 0xe3,
+# `UnicodeDecodeError`, HUNKS com ZERO chaves, `ignorados 80`. O numero que a onda publicou como
+# "higiene fora das linhas tocadas" era, naquele repositorio, o portao sem mapa nenhum.
+# `surrogateescape` preserva o byte cru sem decodificar: nome de arquivo e marcador de hunk sao
+# ASCII, e o conteudo da linha nao e lido por este parser.
+for l in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n"):
+    # Metadado so vale ANTES do diff: `diff --git` fecha a porta para linha de conteudo.
+    if l.startswith("diff --git "):
+        em_diff=True
+    if not em_diff and l.startswith("EXT "):
+        e=l[4:].strip()
+        if e: exts.append(e)
+        continue
+    if not em_diff and l.startswith("NUMSTAT "):
+        campo=l[8:]
+        # RENOMEACAO. `git diff -z --numstat` NAO emite o caminho na mesma linha quando o arquivo
+        # foi renomeado: emite `add \t del \t \0 origem \0 destino \0`, que apos o `tr` vira
+        # TRES linhas - a primeira com o campo de caminho VAZIO, as duas seguintes com origem e
+        # destino. A primeira versao desta guarda gravava `esperados[""]` e descartava as outras
+        # duas por terem um campo so; o laco de concordancia entao pulava a entrada vazia e
+        # TODO ARQUIVO RENOMEADO ficava invisivel.
+        # REPRODUZIDO ponta a ponta contra esta propria correcao, antes dela: `.gitattributes`
+        # com `*.py -diff` mais `git mv` de ALTA similaridade devolvia rc=0, stdout vazio, zero
+        # divergencias e `pass` no ledger - exatamente a classe C1 que a guarda existe para
+        # fechar, por outra porta. A similaridade alta importa: com arquivo curto a deteccao de
+        # rename nao dispara e o portao bloqueia, que e por que o caso passou despercebido.
+        # O que interessa e o caminho de DESTINO: e nele que o analisador vai reportar.
+        if pend:
+            pend-=1
+            if pend==0 and campo: esperados[campo]=pend_add
+            continue
+        # maxsplit=2: em `--numstat -z` o separador de CAMPO continua sendo TAB, e o proprio
+        # caminho pode conter TAB (medido). Sem o limite, `com<TAB>tab.py` viraria `com`.
+        c=campo.split("\t", 2)
+        if len(c)>=3:
+            if c[2]=="": pend=2; pend_add=c[0].strip()
+            else: esperados[c[2]]=c[0].strip()
+        continue
     if l.startswith("UNTRACKED "):
-        # arquivo NOVO nao rastreado: todas as linhas sao do turno, entao a faixa e total
+        # arquivo nao rastreado ESCRITO NESTE TURNO: todas as linhas sao do turno, faixa total.
         h[l[10:].strip()].append([1, 10**9])
+    elif l.startswith("PREEXISTENTE "):
+        # G82: nao rastreado, mas com mtime ANTERIOR ao INICIO DA SESSAO (birth time do
+        # transcrito; ver o bloco que define REF_EPOCH). NAO
+        # recebe faixa: a higiene dele fica fora de hunk, como a de qualquer arquivo que o turno
+        # nao tocou. Quebra continua julgada na arvore contra a catraca, sem depender de hunk.
+        pass
     elif l.startswith("+++ b/"): f=l[6:].strip()
     elif l.startswith("+++ "): f=None   # forma citada nao reconhecida: melhor nenhum arquivo que o ANTERIOR
     elif l.startswith("@@") and f:
@@ -455,8 +816,55 @@ for l in sys.stdin:
         if m:
             i=int(m.group(1)); n=int(m.group(2) or 1)
             if n: h[f].append([i,i+n-1])
-print(json.dumps(dict(h)))' 2>/dev/null)"
-    printf '%s' "$HUNKS" | jq -e 'type == "object"' >/dev/null 2>&1 || HUNKS='{}'
+# CONCORDANCIA. Arquivo que o git diz ter mudado, cuja extensao ESTE turno analisa, e que nao
+# recebeu faixa nenhuma: o escopo de higiene dele se perdeu. Fail-closed - faixa total, e a
+# divergencia sai por stderr para o executor declarar a lacuna.
+for cam, add in esperados.items():
+    if not cam or cam in h: continue
+    if not any(cam.endswith(e) for e in exts): continue
+    binario = (add == "-")
+    if not binario:
+        try:
+            if int(add) <= 0: continue     # so delecao ou so mudanca de modo: nao ha linha nova
+        except ValueError:
+            binario = True
+    h[cam].append([1, 10**9])
+    sys.stderr.write("DIVERGENCIA\t%s\t%s\n" % (cam, "tratado como binario pelo git (.gitattributes ou diff vazio)" if binario else "mudou com %s linha(s) adicionada(s) e nao gerou hunk" % add))
+print(json.dumps(dict(h)))' 2>"$DIVERGF")"
+    # PARSER MORTO NAO E ARVORE INTOCADA. `|| HUNKS='{}'` tratava falha de leitura como "nenhuma
+    # linha foi tocada", que e o valor que faz TODA higiene ser ignorada - aprovacao silenciosa
+    # pelo caminho mais largo do portao. Agora a falha e declarada: o turno segue julgado (quebra
+    # continua bloqueando contra a catraca), mas o operador ve que o escopo de higiene foi perdido.
+    if ! printf '%s' "$HUNKS" | jq -e 'type == "object"' >/dev/null 2>&1; then
+      HUNKS='{}'
+      LACUNAS="$LACUNAS
+  - $ID: o mapa de linhas tocadas NAO pode ser lido (parser de diff falhou). Higiene NAO foi julgada neste turno - so quebra. Escopo de delta perdido, nao vazio."
+    fi
+    # C1/C4: a divergencia entre `git diff --numstat` e o mapa NUNCA CALA. Ela ja foi tratada
+    # fail-closed dentro do parser (faixa total), e aqui vira sinal para o operador: sem isso, um
+    # `.gitattributes` hostil viraria "o portao ficou mais rigoroso do nada", sem causa visivel.
+    if [ -n "${DIVERGF:-}" ] && [ -s "$DIVERGF" ]; then
+      { printf 'ESCOPO DE HIGIENE DIVERGENTE: %s arquivo(s) que o git reporta como alterados nao apareceram no mapa de linhas tocadas.\n' \
+          "$(grep -c '^DIVERGENCIA' "$DIVERGF" 2>/dev/null || echo '?')"
+        printf '  Tratados fail-closed (arquivo INTEIRO considerado do turno). Causa por arquivo:\n'
+        sed -n 's/^DIVERGENCIA\t\([^\t]*\)\t\(.*\)$/    - \1: \2/p' "$DIVERGF" | head -20
+      } >&2
+    elif [ -z "${DIVERGF:-}" ]; then
+      # mktemp falhou: a guarda de concordancia NAO pode ter rodado com destino de erro valido.
+      # G78 de novo - temporario indisponivel vira lacuna declarada, nunca aprovacao silenciosa.
+      LACUNAS="$LACUNAS
+  - $ID: nao foi possivel abrir o canal de divergencia do analisador de hunks (TMPDIR=${TMPDIR:-/tmp}). A concordancia entre o diff e o mapa de linhas NAO foi conferida neste turno."
+    fi
+    rm -f "${DIVERGF:-}" 2>/dev/null || true
+    # G82: A EXCLUSAO POR IDADE NUNCA CALA. A licao de G68 vale igual aqui: exclusao que o
+    # operador nao ve e indistinguivel de buraco. Vai para stderr em toda execucao em que agir,
+    # com o numero e a referencia temporal usada.
+    if [ "$N_PREEXISTENTE" -gt 0 ]; then
+      { printf 'NAO RASTREADO E ANTERIOR A ESTA SESSAO: %s arquivo(s) tiveram a higiene EXCLUIDA do julgamento.\n' "$N_PREEXISTENTE"
+        printf '  Referencia: %s.\n' "$_ref_ts"
+        printf '  mtime anterior a ela = nao pode ter sido escrito nesta sessao. Quebra desses arquivos CONTINUA sendo julgada.\n'
+      } >&2
+    fi
     # G_VAZIO NO ESCOPO DELTA. A mesma armadilha das outras duas formas, e ela e PIOR aqui:
     # um analisador sobre arvore sem nenhum arquivo do ecossistema devolve LISTA VAZIA, e lista
     # vazia atravessa o nucleo inteiro como "nada a bloquear" - aprovacao sobre nada, com todos os
@@ -506,10 +914,34 @@ print(json.dumps(dict(h)))' 2>/dev/null)"
     # estourava. O hook morria com `Argument list too long` (exit 126) e, como a semeadura exige
     # RC==1, o repositorio ficava bloqueado PARA SEMPRE - gravando no ledger a mesma linha
     # `falharam: python-analyzer` cujo excesso justifica a onda. Arquivo nao tem esse limite.
-    RAWF="$(mktemp "${TMPDIR:-/tmp}/tollens-raw.XXXXXX")" || RAWF=""
-    printf '%s' "$RAW" > "$RAWF" 2>/dev/null
+    # G74: `--hunks` tambem estoura MAX_ARG_STRLEN, e nunca tinha estourado so porque o parser
+    # de diff morria antes em repositorio grande. Corrigido o parser, o mapa do amaral passou a
+    # ter 2685 chaves e o hook morreu com `Argument list too long` (exit 126). Mesmo remedio.
+    HUNKF="$(mktemp "${TMPDIR:-/tmp}/tollens-hunks.XXXXXX" 2>/dev/null)" || HUNKF=""
+    RAWF="$(mktemp "${TMPDIR:-/tmp}/tollens-raw.XXXXXX" 2>/dev/null)" || RAWF=""
+    # C3 DO REVISOR, e e o pior defeito desta serie: `mktemp` que falha nao pode virar aprovacao.
+    # Com `HUNKF=""` o nucleo recebia `--hunks-file ""`, que e FALSY, caia no default `--hunks {}`
+    # - o mapa vazio, o valor mais permissivo - e o turno passava. Medido ponta a ponta contra o
+    # hook EM VIGOR, com TMPDIR nao gravavel:
+    #     A) TMPDIR normal ............ rc=2   (bloqueia, correto)
+    #     B) TMPDIR nao gravavel ...... rc=0, stdout VAZIO, ledger grava `pass`
+    #     D) mesmo snapshot, TMPDIR sao  rc=0  (o `pass` envenenado curto-circuita)
+    # O segundo dano e pior que o primeiro: a falha e TRANSITORIA e o `pass` e PERMANENTE para
+    # aquele estado de arvore. A raiz e preexistente - `RAWF` faz isto desde F3 -, e esta onda a
+    # replicou numa segunda variavel dentro do comentario que dizia estar fechando a classe.
+    # Falha de escrita e LACUNA declarada, como ja e para o mapa ilegivel 70 linhas acima.
+    if [ -z "$HUNKF" ] || [ -z "$RAWF" ] \
+       || ! printf '%s' "$HUNKS" > "$HUNKF" 2>/dev/null \
+       || ! printf '%s' "$RAW" > "$RAWF" 2>/dev/null; then
+      LACUNAS="$LACUNAS
+  - $ID: nao foi possivel gravar os arquivos temporarios do analisador (TMPDIR=${TMPDIR:-/tmp} sem espaco ou sem permissao). NADA foi julgado neste turno - e nada foi gravado no ledger como aprovado."
+      [ -n "${HUNKF:-}" ] && rm -f "$HUNKF"
+      [ -n "${RAWF:-}" ] && rm -f "$RAWF"
+      [ "$TMPERR" != /dev/null ] && rm -f "$TMPERR"
+      continue
+    fi
     VER="$(python3 "$LD" --raw-file "$RAWF" --map "$MAPA" --strip-prefix "$ROOT/" \
-             --hunks "$HUNKS" --baseline "$BL" --nested-roots "$NESTED" \
+             --hunks-file "$HUNKF" --baseline "$BL" --nested-roots "$NESTED" \
              --breakage-codes "$BRK" 2>"$TMPERR")"; RC=$?
     OUT="$VER
 $(cat "$TMPERR" 2>/dev/null)"
@@ -612,7 +1044,7 @@ $(cat "$TMPERR" 2>/dev/null)"
         BL="$(cat "$BLPATH" 2>/dev/null)"
         TMPERR2="$(mktemp "${TMPDIR:-/tmp}/tollens-delta.XXXXXX")" || TMPERR2=/dev/null
         VER="$(python3 "$LD" --raw-file "$RAWF" --map "$MAPA" --strip-prefix "$ROOT/" \
-                 --hunks "$HUNKS" --baseline "$BL" --nested-roots "$NESTED" \
+                 --hunks-file "$HUNKF" --baseline "$BL" --nested-roots "$NESTED" \
                  --breakage-codes "$BRK" 2>"$TMPERR2")"; RC=$?
         OUT="$VER
 $(cat "$TMPERR2" 2>/dev/null)"
@@ -628,6 +1060,7 @@ $(cat "$TMPERR2" 2>/dev/null)"
     # ultimo leitor de $RAWF ja passou (o rejulgamento pos-semeadura).
     [ -n "${RAWF:-}" ] && rm -f "$RAWF"
     [ -n "${RAWBF:-}" ] && rm -f "$RAWBF"
+    [ -n "${HUNKF:-}" ] && rm -f "$HUNKF"
   elif [ "$(jq -r '.per_file // false' "$a")" = "true" ]; then
     # G_VAZIO (per_file): um adaptador per_file so examina os arquivos de CHANGED que ainda
     # existem no disco (`[ -f "$ROOT/$f" ] || continue`). Se apagar, renomear-com-conteudo-
@@ -697,13 +1130,80 @@ done
 # --- veredito conjuntivo ---
 if [ -n "$FALHAS" ]; then
   registra "fail" "falharam:$FALHAS"
+  # G77: a partir do limiar, a mensagem PARA de se repetir e passa a nomear a repeticao. O
+  # veredito nao muda - o defeito continua la -, mas dizer a mesma coisa pela N-esima vez e o
+  # comportamento que produziu 336 negativas identicas sobre uma arvore que nunca mudou.
+  LACO=""
+  if [ "$TENTATIVAS_IDENTICAS" -ge 3 ]; then
+    LACO="
+
+*** ESTA E A $((TENTATIVAS_IDENTICAS + 1))a PARADA COM ESTE MESMO ESTADO DE ARVORE. ***
+Snapshot, verificadores e ambiente sao IDENTICOS aos das $TENTATIVAS_IDENTICAS anteriores: nada do
+que voce fez desde entao mudou o que este portao mede. Repetir a correcao nao vai mudar o
+resultado. As saidas REAIS, e sao estas:
+  1. Mudar de fato um dos arquivos que o verificador aponta acima - o snapshot e digest de HEAD
+     mais o de cada arquivo alterado, entao edicao que nao toca esses arquivos nao muda nada aqui.
+  2. Se o defeito e PREEXISTENTE e nao do seu turno, dizer isso ao operador com o nome do arquivo
+     e a linha, em vez de tentar de novo. O portao nao distingue sozinho divida herdada de
+     regressao fora dos codigos declarados em \`breakage_codes\`.
+  3. Se o verificador esta errado sobre este codigo, isso e um defeito do adaptador e precisa ser
+     reportado ao operador - nao contornado.
+NAO tente uma quarta variacao da mesma correcao sem antes dizer ao operador o que esta travando."
+  fi
+  # G81: DEPOIS DE ESCALAR, BLOQUEAR DE NOVO E DEADLOCK, NAO PORTAO.
+  #
+  # O bloco $LACO acima manda o ator PARAR de tentar variacoes e dizer ao operador o que trava.
+  # Um ator que obedece nao tem mais nada a fazer no turno - e o portao bloqueava a parada dele
+  # assim mesmo. A mensagem exigia uma acao que ela propria punia.
+  #
+  # MEDIDO em /var/www/amaral-intern-hub, 2026-09-03: 107 paradas no dia, 3 estados distintos,
+  # 91 no MESMO estado. O ator tinha escalado corretamente (os 79 achados sao higiene de WIP
+  # untracked de OUTRO desenvolvedor, com mtime de 2026-07-17 - 48 dias) e se recusava, tambem
+  # corretamente, a editar trabalho alheio. O runtime precisou intervir com o proprio teto
+  # ("A hook blocked the turn from ending 9 consecutive times - overriding").
+  #
+  # A partir do LIMITE DE ESCALADA o veredito continua NEGATIVO e o diagnostico continua inteiro,
+  # mas deixa de BLOQUEAR: vira additionalContext. O que o portao existe para impedir e o ator
+  # declarar sucesso falso - e isso o texto continua impedindo, porque ele chega igual. O que ele
+  # nao pode fazer e impedir o ator de ENTREGAR A DECISAO ao humano.
+  #
+  # O limite e 6, o dobro do limiar de laco (3), e a escolha e declarada: 3 paradas para o ator
+  # perceber, mais 3 para escalar. Nao ha experimento por tras do numero; e piso conservador, e
+  # trocar exige medir.
+  LIMITE_ESCALADA=6
+  if [ "$TENTATIVAS_NA_SESSAO" -ge "$LIMITE_ESCALADA" ]; then
+    # C3 DO REVISOR + MEDIDO EM PRODUCAO: a escalada precisa sair SEM `additionalContext`.
+    #
+    # A primeira versao usava `aviso`, que sai 0 mas emite `additionalContext`. Medido na sessao
+    # do operador em /var/www/amaral-intern-hub: a mensagem dizia "nao bloqueante" e o turno NAO
+    # terminava - as paradas foram de 37 a 59 e o runtime precisou intervir com o teto dele
+    # ("A hook blocked the turn from ending 9 consecutive times"). `additionalContext` num `Stop`
+    # NAO e canal passivo: ele REALIMENTA o modelo e o turno reinicia. O revisor tinha marcado
+    # isto como NAO VERIFICADO por nao conseguir instrumentar o runtime; o log do operador foi a
+    # sonda, e a resposta e que re-prompta.
+    #
+    # Para o turno ENCERRAR de verdade: `exit 0` e SO stderr. O ADR 0021 diz que stderr com
+    # exit 0 e INERTE - nao chega ao modelo -, e e exatamente por isso que serve aqui: o modelo
+    # ja recebeu o diagnostico nas SEIS paradas anteriores, e o que falta e o turno acabar para
+    # o humano decidir. O operador le stderr no transcrito.
+    { printf 'GATE - VERIFICACAO FALHOU (NAO BLOQUEANTE: %s paradas identicas nesta sessao).\n' "$TENTATIVAS_NA_SESSAO"
+      printf 'Verificadores aplicados:%s\nReprovaram:%s\n' "$ECOS" "$FALHAS"
+      printf '%s\n' "$SAIDA"
+      printf -- '---\n'
+      printf 'Estado: NOT_VERIFIED. O veredito continua NEGATIVO e o defeito continua na arvore.\n'
+      printf 'O portao parou de bloquear na %sa parada identica desta sessao para o turno poder\n' "$TENTATIVAS_NA_SESSAO"
+      printf 'ENCERRAR - o ator ja recebeu este diagnostico nas paradas anteriores e nao conseguiu\n'
+      printf 'agir sobre ele. A decisao e do operador.%s\n' "$AVISO_REPO"
+    } >&2
+    exit 0
+  fi
   reporta "GATE - VERIFICACAO FALHOU. O snapshot NAO e um candidato valido.
 Verificadores aplicados:$ECOS
 Reprovaram:$FALHAS
 $SAIDA
 ---
 Estado: NOT_VERIFIED. O sinal e externo - nao declare corrigido por auto-avaliacao.
-Este hook nao certifica nada: mesmo passando, o veredito final e da CI sobre o SHA.$AVISO_REPO"
+Este hook nao certifica nada: mesmo passando, o veredito final e da CI sobre o SHA.$AVISO_REPO$LACO"
 fi
 if [ -n "$LACUNAS" ]; then
   registra "gap" "lacunas:$LACUNAS"

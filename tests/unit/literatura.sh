@@ -335,7 +335,11 @@ import sys, yaml
 sys.path.insert(0, "$T")
 from base import doc
 d = doc()
-d["cited_in"] = ["docs/adr/0099-fixture.md"]
+# NAO usa caminho: desde a onda 25e `cited_in` que COMECA com um caminho de arquivo tem de
+# resolver e mencionar a entrada (BD16). Este caso mede outra coisa - que DIGITO em campo
+# bibliografico nao exige marcador de fonte -, e um caminho ficticio aqui faria o caso
+# reprovar pela regra errada, medindo BD16 em vez de LT16.
+d["cited_in"] = ["ADR 0099 (fixture, referencia sem caminho)"]
 yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
 PY
 chk "cited_in com digito (numero de ADR) sem marcador ainda passa" "$(val "$D")" 0
@@ -534,9 +538,332 @@ PY
 )"
 chk "aspa real de 223 chars (fora da janela por DISTANCIA) segue NAO retratada" "$RES29" "sim"
 
+echo "== BD. BUSCA DELIMITADA: NaoEncontrado(consultas, fontes, data) precisa das TRES partes =="
+# POR QUE ESTA SECAO EXISTE. `tests/unit/governance-links.py` obriga toda afirmacao de ausencia
+# na literatura a citar `[busca:<id>]` e verifica que o id RESOLVE para um arquivo - sem nunca
+# LER o arquivo. Medido nesta arvore antes desta mudanca: a unica busca registrada, BL-0001,
+# declarava `sources: [ledger interno evidence/literature/]`. Uma busca que consultou apenas o
+# proprio repositorio nao pode encontrar nada que o corpus ja nao contivesse; ela absolvia a
+# claim sem observar a literatura. A regra dura desta camada e FONTE EXTERNA, e os casos abaixo
+# existem para que ela nao possa ser afrouxada em silencio.
+#
+# CONTROLE POSITIVO PRIMEIRO (BD1): sem ele, todo negativo seria indistinguivel de "o validador
+# reprova qualquer coisa" - a mesma falha que LT2 corrigiu para a camada de literatura.
+cat > "$T/busca.py" <<'PY'
+def busca():
+    return {
+        "claim_id": "BL-0001",
+        "question": "Existe trabalho que meca X?",
+        "searched_at": "DATA_HOJE",
+        "searched_by": "fixture",
+        "sources": ["https://arxiv.org/list/cs.SE/recent", "ledger interno evidence/literature/"],
+        "queries": ["false success", "self-reported success"],
+        "result": {"matching_studies": 0, "matches": []},
+    }
+PY
+sed -i "s/DATA_HOJE/$(date +%F)/" "$T/busca.py"
+# helper: grava o molde de literatura VALIDO (para a camada de literatura nao ser a causa) mais
+# UMA busca, no diretorio dado.
+bd_lit(){ python3 - "$1/arxiv-0000.00000.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+yaml.safe_dump(doc(), open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+}
+
+D="$T/bd1"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+yaml.safe_dump(busca(), open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD1 CONTROLE: busca com fonte externa, consultas e data valida passa" "$(val "$D")" 0
+
+# BD2 e o caso motivador, reproduzido: a busca REAL que existia nesta arvore.
+D="$T/bd2"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["sources"] = ["ledger interno evidence/literature/"]
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD2 so fonte INTERNA (o caso real de BL-0001) -> reprova" "$(val "$D")" 1
+
+# BD3: a marca interna tem PRECEDENCIA sobre o nome da base. Sem esta regra, a string
+# 'ledger interno evidence/literature/arxiv-2606.09863.yaml' passaria por conter 'arxiv'.
+D="$T/bd3"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["sources"] = ["ledger interno evidence/literature/arxiv-2606.09863.yaml"]
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD3 caminho INTERNO que contem 'arxiv' NAO vira fonte externa" "$(val "$D")" 1
+
+# BD4: base externa NOMEADA, sem URL - caso legitimo de base com interface propria.
+D="$T/bd4"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["sources"] = ["ACM Digital Library (consulta pela interface web)"]
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD4 CONTROLE: base externa nomeada sem URL passa" "$(val "$D")" 0
+
+D="$T/bd5"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["queries"] = []
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD5 queries VAZIA (ausencia sem dizer o que procurou) -> reprova" "$(val "$D")" 1
+
+D="$T/bd6"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); del b["searched_by"]
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD6 campo obrigatorio ausente -> reprova" "$(val "$D")" 1
+
+D="$T/bd7"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["searched_at"] = "agosto de 2026"
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD7 searched_at em prosa (nao ISO) -> reprova" "$(val "$D")" 1
+
+# BD8: data no FUTURO tornaria a idade negativa e o envelhecimento inerte - o mesmo modo de
+# falha que o portao ja trata para relogio torto (A2 do revisor, em verify-gate.sh).
+D="$T/bd8"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["searched_at"] = "$(date -d '+3 days' +%F)"
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD8 searched_at no FUTURO -> reprova" "$(val "$D")" 1
+
+D="$T/bd9"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["searched_at"] = "$(date -d '-800 days' +%F)"
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD9 busca FOSSILIZADA (800 dias > limite 730) -> reprova" "$(val "$D")" 1
+D="$T/bd9b"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["searched_at"] = "$(date -d '-700 days' +%F)"
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "  CONTROLE: 700 dias (dentro do limite) passa" "$(val "$T/bd9b")" 0
+
+D="$T/bd10"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["result"] = {"matching_studies": 0, "matches": [{"id": "arXiv:0000.00000"}]}
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD10 matching_studies=0 com 1 match listado (contradicao interna) -> reprova" "$(val "$D")" 1
+
+# BD11: "nao encontrei nada" e RESULTADO VALIDO. A camada nao pode punir o zero honesto - se
+# punisse, empurraria quem registra a busca a inventar match.
+D="$T/bd11"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca(); b["result"] = {"matching_studies": 0, "matches": []}
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD11 CONTROLE: zero achados, honestamente declarado, passa" "$(val "$D")" 0
+
+D="$T/bd12"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-9999-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+yaml.safe_dump(busca(), open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD12 nome do arquivo nao casa com claim_id -> reprova" "$(val "$D")" 1
+
+D="$T/bd13"; mkdir -p "$D/searches"; bd_lit "$D"
+for _n in BL-0001-a BL-0001-b; do
+python3 - "$D/searches/$_n.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+yaml.safe_dump(busca(), open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+done
+chk "BD13 claim_id duplicado em dois arquivos -> reprova" "$(val "$D")" 1
+
+# BD14: diretorio AUSENTE nao e violacao (corpus sintetico nao tem a camada), mas o relatorio
+# precisa DIZER que nao verificou - senao "nao violou" vira indistinguivel de "verificado", que
+# e exatamente a confusao que este repositorio existe para impedir.
+D="$T/bd14"; mkdir -p "$D"; bd_lit "$D"
+chk "BD14 sem diretorio de buscas: nao reprova..." "$(val "$D")" 0
+chk "  ...mas DECLARA que a camada nao foi verificada" \
+    "$(python3 "$V" "$REPO" "$D" 2>&1 | grep -c 'NAO VERIFICADA')" 1
+
+# BD15: `matches[].ledger` tem de RESOLVER. Sem esta regra a busca cita um ledger que nunca foi
+# escrito e o `NaoEncontrado` aponta para o vazio - foi exatamente o que aconteceu ao redigir
+# BL-0002 nesta arvore: duas entradas foram citadas antes de existirem e o validador aprovou.
+D="$T/bd15"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca()
+b["result"] = {"matching_studies": 1,
+               "matches": [{"id": "x", "ledger": "evidence/literature/nao-existe-jamais.yaml"}]}
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD15 match citando ledger INEXISTENTE -> reprova" "$(val "$D")" 1
+D="$T/bd15b"; mkdir -p "$D/searches"; bd_lit "$D"
+python3 - "$D/searches/BL-0001-fixture.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca()
+b["result"] = {"matching_studies": 1,
+               "matches": [{"id": "x", "ledger": "evidence/validate-literature.py"}]}
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "  CONTROLE: ledger que RESOLVE passa" "$(val "$T/bd15b")" 0
+
+# BD16: `cited_in` afirma ONDE a entrada e citada, e a afirmacao tem de ser verdadeira. MEDIDO
+# nesta arvore: sete referencias falsas, entre elas uma entrada declarando ser citada por
+# `execution/agents/refutador.md` quando aquele agente nao a menciona em lugar nenhum. O campo
+# estava em CAMPOS_BIBLIOGRAFICOS e por isso escapava de toda varredura - era prosa que ninguem
+# conferia.
+D="$T/bd16"; mkdir -p "$D"
+python3 - "$D/arxiv-0000.00000.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+d = doc(); d["cited_in"] = ["docs/adr/nao-existe-jamais.md"]
+yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD16 cited_in para arquivo INEXISTENTE -> reprova" "$(val "$D")" 1
+D="$T/bd16b"; mkdir -p "$D"
+python3 - "$D/arxiv-0000.00000.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+d = doc(); d["cited_in"] = ["evidence/validate-literature.py"]   # existe, mas nao cita o id
+yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "  arquivo existe mas NAO menciona a entrada -> reprova" "$(val "$D")" 1
+D="$T/bd16c"; mkdir -p "$D"
+python3 - "$D/arxiv-2603.15401.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+d = doc()
+d["literature_id"] = "arxiv-2603.15401"
+d["identifier"] = "arXiv:2603.15401"
+d["cited_in"] = ["docs/method/CONHECIMENTO.md"]   # cita de verdade
+yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "  CONTROLE: arquivo que MENCIONA a entrada passa" "$(val "$T/bd16c")" 0
+D="$T/bd16d"; mkdir -p "$D"
+python3 - "$D/arxiv-0000.00000.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+d = doc(); d["cited_in"] = ["conversa com o operador", "https://exemplo.invalido/x"]
+yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "  CONTROLE: texto livre e URL nao sao tratados como caminho" "$(val "$T/bd16d")" 0
+
+# BD17-BD26: os RAMOS DE ENTRADA MALFORMADA da camada de busca. Sem eles a camada nova derruba a
+# cobertura de decisao do arquivo (medido: 92,3% -> 88,78%, ABAIXO DO PISO), e piso furado por
+# codigo novo e exatamente a regressao silenciosa que `evidence/cobertura.sh` existe para barrar.
+# Cada caso exercita UM ramo de recusa; o valor esta em o validador nao ESTOURAR nem APROVAR
+# diante de documento torto - as duas falhas sao piores que reprovar.
+bd_busca(){ # $1=subdir  $2=mutacao python sobre `b`
+  local D="$T/$1"; mkdir -p "$D/searches"; bd_lit "$D"
+  python3 - "$D/searches/BL-0001-fixture.yaml" "$2" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from busca import busca
+b = busca()
+exec(sys.argv[2])
+yaml.safe_dump(b, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+  printf '%s' "$D"
+}
+D="$(bd_busca bd17 'b["question"]="   "')"
+chk "BD17 question em branco -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd18 'b["searched_by"]=""')"
+chk "BD18 searched_by vazio -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd19 'b["queries"]=["a",""]')"
+chk "BD19 queries com entrada VAZIA -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd20 'b["sources"]="nao e lista"')"
+chk "BD20 sources que nao e lista -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd21 'b["result"]="nao e mapa"')"
+chk "BD21 result que nao e mapa -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd22 'b["result"]={"matches":[]}')"
+chk "BD22 result sem matching_studies -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd23 'b["result"]={"matching_studies":-1,"matches":[]}')"
+chk "BD23 matching_studies negativo -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd24 'b["result"]={"matching_studies":True,"matches":[]}')"
+chk "BD24 matching_studies booleano (True nao e contagem) -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd25 'b["result"]={"matching_studies":1,"matches":"nao e lista"}')"
+chk "BD25 matches que nao e lista -> reprova" "$(val "$D")" 1
+D="$(bd_busca bd26 'b["searched_at"]="2026-13-45"')"
+chk "BD26 data ISO com mes/dia impossiveis -> reprova" "$(val "$D")" 1
+# BD27: matches[] com entrada que nao e mapa - o laco de resolucao tem de PULAR, nao estourar.
+D="$(bd_busca bd27 'b["result"]={"matching_studies":1,"matches":["string solta"]}')"
+chk "BD27 CONTROLE: matches[] nao-mapa nao derruba o validador" "$(val "$D")" 0
+# BD28: raiz do documento que nao e mapa.
+D="$T/bd28"; mkdir -p "$D/searches"; bd_lit "$D"
+printf -- "- isto e uma lista, nao um mapa\n" > "$D/searches/BL-0001-fixture.yaml"
+chk "BD28 raiz da busca que nao e mapa -> reprova" "$(val "$D")" 1
+# BD29: YAML sintaticamente invalido no diretorio de buscas.
+D="$T/bd29"; mkdir -p "$D/searches"; bd_lit "$D"
+printf 'claim_id: [nao fecha\n' > "$D/searches/BL-0001-fixture.yaml"
+chk "BD29 YAML invalido em searches/ -> reprova (nao estoura)" "$(val "$D")" 1
+# BD30: diretorio de buscas EXISTE mas esta vazio - nao e violacao, e NAO VERIFICADO declarado.
+D="$T/bd30"; mkdir -p "$D/searches"; bd_lit "$D"
+chk "BD30 diretorio de buscas vazio: nao reprova..." "$(val "$D")" 0
+chk "  ...e DECLARA que a camada nao foi verificada" \
+    "$(python3 "$V" "$REPO" "$D" 2>&1 | grep -c 'NAO VERIFICADA')" 1
+# BD31: cited_in com caminho SEM barra nao e tratado como caminho do repositorio.
+D="$T/bd31"; mkdir -p "$D"
+python3 - "$D/arxiv-0000.00000.yaml" <<PY
+import sys, yaml
+sys.path.insert(0, "$T")
+from base import doc
+d = doc(); d["cited_in"] = ["README.md"]
+yaml.safe_dump(d, open(sys.argv[1], "w"), allow_unicode=True, sort_keys=False)
+PY
+chk "BD31 CONTROLE: cited_in sem diretorio nao e caminho deste repo" "$(val "$D")" 0
+
 echo
 echo "================ PASS=$P  FAIL=$F ================"
-EXPECTED=38
+EXPECTED=76
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

@@ -170,6 +170,14 @@ ARNESES
     _b="$(basename "$_mf" .sh)"
     case " $CURADOS " in *" $_b "*) continue ;; esac
     _n="$(grep -oE 'EXPECTED_MUTANTS=[0-9]+' "$_mf" | head -1 | cut -d= -f2)"
+    # MESMO FALLBACK DA TABELA CURADA (`n_mut`, acima), que esta varredura nao tinha: contar os
+    # mutantes DECLARADOS no arquivo. Sem ele, arnes sem `EXPECTED_MUTANTS=` publicava `?` -
+    # e `?` num artefato de status e a ausencia que ele existe para nao ter. Medido na onda 25c:
+    # `lint-delta` e `verify-gate-delta` sairam com `?` mesmo tendo 11 e 7 mutantes contaveis.
+    # DERIVADO, nao declarado: escrever o numero a mao no arnes o faria divergir do arquivo no
+    # primeiro mutante novo, que e a classe de defeito que este repositorio persegue.
+    [ -n "$_n" ] || _n="$(grep -c '^mutante M' "$_mf")"
+    [ "${_n:-0}" -gt 0 ] 2>/dev/null || _n=""
     # ROTULO CONSTANTE, NAO EXIT CODE MEDIDO. Defeito meu, pago com uma CI vermelha (run
     # 31607753782): a primeira versao desta varredura EXECUTAVA o arnes e gravava o `$?` no
     # artefato. `fable-guard.sh` deu 0 nesta maquina e 1 no runner - o ubuntu-24.04 restringe

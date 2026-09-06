@@ -76,8 +76,13 @@ mutante M2 "additionalContext como canal de aviso" "additionalContext" \
   sed -i 's|^aviso(){ jq -cn|aviso(){ printf "%s\\n" "$1" >\&2; exit 0; }\nunused_aviso(){ jq -cn|' "$ORIG"
 
 # M3 - identidade por NOME em vez de bytes (nao ve conteudo de untracked)
+# REANCORADO na onda 25e: o alvo era o laco `printf ... $(sha256sum ...)` por arquivo, que a
+# correcao de custo substituiu por duas chamadas em lote mais um `awk` de juncao. O mutante NAO
+# FOI APLICADO na primeira execucao apos aquela mudanca, e o arnes acusou - mutante nao aplicado
+# e teste invalido, nao mutante morto. A intencao e a mesma: emitir o NOME sem o digest, para
+# que o snapshot deixe de ver o conteudo.
 mutante M3 "identidade sobre bytes do arquivo" "untracked reprova" \
-  sed -i 's|printf .%s %s\\n. "$f" "$(sha256sum "$ROOT/$f" 2>/dev/null \| cut -d. . -f1)"|printf "%s\\n" "$f"|' "$ORIG"
+  sed -i 's|print \$0, (p in m ? m\[p\] : "absent")|print $0|' "$ORIG"
 
 # M4 - para no primeiro adaptador aplicavel (ponto cego de monorepo)
 mutante M4 "conjuncao sobre TODOS os adaptadores" "nao mascara" \

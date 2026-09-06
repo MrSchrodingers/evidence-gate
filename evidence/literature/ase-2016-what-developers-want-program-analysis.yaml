@@ -1,0 +1,106 @@
+# Camada de qualidade de evidencia - ver evidence/validate-literature.py. Verde aqui e FORMA.
+#
+# ALERTA DE FABRICACAO REGISTRADO: ao levantar esta fonte, um motor de busca devolveu a frase
+# "practitioners consider a precision of 75-80% as a minimum threshold" atribuida a este artigo.
+# Ela NAO existe no PDF (conferido). Foi descartada e nao consta de nenhum campo abaixo.
+literature_id: ase-2016-what-developers-want-program-analysis
+citation: >-
+  Christakis, M.; Bird, C. What developers want and need from program analysis: an empirical
+  study. In: 31st IEEE/ACM International Conference on Automated Software Engineering (ASE),
+  2016, p. 332-343. DOI 10.1145/2970276.2970347. PDF completo lido na pagina da primeira autora;
+  paginacao vinda do dblp.
+identifier: DOI 10.1145/2970276.2970347
+url: https://mariachris.github.io/Pubs/ASE-2016.pdf
+cited_in:
+- docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
+- evidence/literature/searches/BL-0002-portao-por-delta.yaml
+provenance: peer_reviewed
+study_quality:
+  benchmark: >-
+    Nao e benchmark - survey com entrevistas de acompanhamento, na Microsoft (fonte: secao de
+    metodo).
+  n: >-
+    2 mil convites e 375 respostas, taxa de 19%, mais entrevistas (fonte: secao de metodo do
+    texto completo).
+  models: >-
+    Nao se aplica - o objeto sao desenvolvedores humanos e as ferramentas que usam.
+  scaffold: >-
+    Ferramentas de analise de programa no fluxo da Microsoft; consumidor humano, aviso ignoravel.
+  oracle: >-
+    Declaracao dos respondentes. NAO e conduta observada - e o limite central desta fonte.
+  baseline: "[nao verificado] - survey nao tem braco de comparacao."
+  trials_repeated: "[nao verificado]"
+  uncertainty_reported: >-
+    Percentuais reportados por item; intervalo de confianca nao confirmado na leitura -
+    [nao verificado].
+  code_data_available: "[nao verificado]"
+  replicated: false
+applicability:
+  domain_similarity: >-
+    Alta - tolerancia a ruido de analisador estatico, exatamente a variavel que este portao
+    precisa dimensionar (fonte - findings.distribuicao_de_tolerancia_a_fp abaixo).
+  scaffold_similarity: >-
+    Baixa - consumidor humano que pode ignorar. Este repositorio bloqueia a parada de um agente.
+  oracle_similarity: >-
+    Baixa - tolerancia DECLARADA em questionario, nao abandono observado.
+inference_strength: EXTRAPOLATED
+inference_rationale: >-
+  E a unica fonte localizada com DISTRIBUICAO quantitativa de tolerancia a falso positivo e com n
+  declarado (fonte - study_quality.n acima), o que a torna a melhor ancora disponivel para
+  dimensionar o ruido admissivel. Mas o que ela mede e o que as pessoas DIZEM que tolerariam num
+  questionario, nao o que fazem, e o desvio entre declaracao e conduta em survey e conhecido e
+  nao medido aqui. Alem disso a populacao e de uma unica empresa, com autosselecao de quem
+  respondeu. Transportar os percentuais como se fossem limiares de conduta seria exceder o
+  desenho; usar a ORDEM DE GRANDEZA - tolerancia despenca bem antes de 20% - nao.
+findings:
+- metric: distribuicao_de_tolerancia_a_fp
+  value: "90% aceitam ate 5%; 47% ate 15%; so 24% aceitam 20%"
+  source: fulltext
+  note: >-
+    Figura 6, verbatim: "90% of developers are willing to accept up to a 5% false positive rate,
+    47% of developers are willing to accept a false positive rate up to 15%, and only 24% percent
+    of developers can handle a false positive rate as high as 20%." Recomendacao em destaque do
+    artigo: "Program analysis designers should aim for a false positive rate no higher than
+    15-20%."
+- metric: irritacao_numero_um
+  value: "checagens irrelevantes ligadas por padrao"
+  source: fulltext
+  note: >-
+    A lista das seis maiores irritacoes tem, em PRIMEIRO lugar, "irrelevant checks are turned on
+    by default" - acima de "too many false positives", que e o terceiro. Consequencia para este
+    repositorio: os 79 achados de higiene alheios ao turno, medidos em producao, sao a irritacao
+    numero um da lista, nao a terceira.
+- metric: analise_so_do_changelist_e_desejada
+  value: "56% nao tem a funcionalidade e a consideram importante"
+  source: fulltext
+  note: >-
+    Verbatim: "56% of the survey respondents do not currently have the functionality of analyzing
+    only a changelist, instead of an entire codebase, but this functionality would be important
+    to them."
+- metric: supressao_e_requisito_minimo
+  value: "supressao de warning consta dos requisitos minimos declarados"
+  source: fulltext
+  note: >-
+    A lista de seis requisitos minimos inclui "(5) with suppression of warnings" - o que sustenta
+    a existencia da catraca deste repositorio, ainda que nao a sua eficacia.
+- metric: orcamento_de_latencia_declarado
+  value: "21% toleram segundos, 53% minutos"
+  source: fulltext
+  note: >-
+    Verbatim: "long running analyzers that exceed a few minutes would not be considered by nearly
+    three quarters of developers."
+limitations:
+- >-
+  MEDE DECLARACAO, NAO CONDUTA (fonte - study_quality.oracle acima). Survey com autosselecao e
+  vies de desejabilidade; nao observa abandono real de ferramenta.
+- >-
+  UMA UNICA EMPRESA (fonte - study_quality.scaffold acima). A transposicao para outro contexto
+  organizacional e por analogia.
+- >-
+  NAO SEPARA GATE BLOQUEANTE DE AVISO. Todos os percentuais foram coletados sobre ferramentas
+  que o desenvolvedor pode ignorar. Nao ha nesta fonte nada que calibre tolerancia quando o
+  portao impede a conclusao do trabalho.
+- >-
+  NAO TRATA DE AGENTES. O consumidor medido e humano, capaz de julgar um achado como irrelevante
+  e seguir adiante - capacidade que o modelo nao exerce (fonte:
+  evidence/literature/arxiv-2310.12397.yaml, controle "evil").

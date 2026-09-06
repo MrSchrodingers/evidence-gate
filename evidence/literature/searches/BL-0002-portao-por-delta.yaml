@@ -1,0 +1,105 @@
+# BUSCA DE LITERATURA DELIMITADA - ver o cabecalho de BL-0001 para a forma e a razao dela.
+#
+# ESCOPO: as afirmacoes de ausencia que o ADR 0042 precisa fazer para justificar o desenho do
+# portao. `PARA TODO p, nao P(p)` nao e demonstravel; `NaoEncontrado(consultas, fontes, data)` e.
+claim_id: BL-0002
+question: >
+  A literatura sustenta julgar o DELTA de um diff em vez da arvore inteira? Existe estudo
+  controlado que compare gate-sobre-codigo-novo contra gate-sobre-arvore medindo desfecho?
+  Existe limiar medido de tolerancia a falso positivo? Existe evidencia sobre a eficacia de
+  baseline/catraca? E existe alguma fonte que meca um gate BLOQUEANTE cujo consumidor seja um
+  agente, e nao um humano?
+searched_at: 2026-09-04
+searched_by: >
+  Sessao de manutencao do repositorio, com execucao das consultas e leitura dos PDFs delegada a
+  um contexto separado. ADR 0027 (evidencia repassada carrega fonte): as citacoes verbatim e os
+  numeros abaixo foram extraidos por esse contexto DIRETAMENTE dos PDFs primarios, que ficaram
+  gravados para conferencia; esta sessao NAO reabriu cada PDF. O contexto delegado descartou
+  explicitamente uma frase que um motor de busca atribuiu a Christakis e Bird e que NAO existe no
+  PDF ("practitioners consider a precision of 75-80% as a minimum threshold") - o mesmo modo de
+  falha que docs/adr/0011 registra.
+sources:
+  - "PDF de autor/instituicao (Google Research): https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43322.pdf"
+  - "PDF de autor/instituicao (Google Storage): https://storage.googleapis.com/gweb-research2023-media/pubtools/4365.pdf"
+  - "UCL Discovery (author accepted manuscript): https://discovery.ucl.ac.uk/id/eprint/10084236/"
+  - "Columbia CS (copia de curso): https://www.cs.columbia.edu/~junfeng/18sp-e6121/papers/coverity.pdf"
+  - "Pagina de autor: https://mariachris.github.io/Pubs/ASE-2016.pdf"
+  - "UBC ECE: https://people.ece.ubc.ca/mjulia/publications/Suppressed_Static_Analysis_Warnings_FSE2025.pdf"
+  - "abseil.io (Software Engineering at Google, cap. 20): https://abseil.io/resources/swe-book/html/ch20.html"
+  - "arXiv: https://arxiv.org/abs/"
+  - "dblp (metadados e paginacao): https://dblp.org/"
+  - "ACM Digital Library / cacm.acm.org: TENTADA E BLOQUEADA (HTTP 403 a fetcher automatizado) - nenhuma afirmacao vem de pagina do editor"
+queries:
+  - "Tricorder building a program analysis ecosystem Google ICSE 2015"
+  - "lessons from building static analysis tools at Google CACM 2018"
+  - "scaling static analyses at Facebook Infer diff time CACM 2019"
+  - "static analysis warning suppression baseline ratchet empirical study"
+  - "false positive rate threshold developers abandon static analysis tool"
+  - "what developers want and need from program analysis empirical study"
+  - "warning ratchet clean as you code evaluation peer reviewed"
+  - "diff-time analysis versus whole program analysis fix rate"
+result:
+  matching_studies: 6
+  matches:
+    - id: "DOI 10.1145/3338112"
+      ledger: evidence/literature/cacm-2019-scaling-static-analyses-facebook.yaml
+      why: >
+        Distefano et al. 2019. O UNICO trabalho localizado que troca so o ESCOPO mantendo a mesma
+        analise e a mesma taxa de falso positivo, e mede o desfecho: fix rate "near zero" ->
+        "over 70%". Sustenta diretamente a decisao do ADR 0042.
+    - id: "DOI 10.1109/ICSE.2015.76"
+      ledger: evidence/literature/icse-2015-tricorder.yaml
+      why: >
+        Sadowski et al. 2015. Declara a politica de mostrar resultado apenas em linhas alteradas,
+        e o rodape 2 ja documenta a EXCECAO que este repositorio redescobriu como classe QUEBRA.
+    - id: "DOI 10.1145/3188720"
+      why: >
+        Sadowski et al. 2018 (CACM). Registra o fracasso do painel sobre arvore inteira e a razao:
+        "distinguishing between new and existing static-analysis issues was distracting". Sem
+        entrada dedicada no ledger ate agora - citavel apenas por esta busca.
+    - id: "DOI 10.1145/1646353.1646374"
+      ledger: evidence/literature/cacm-2010-billion-lines-of-code-later.yaml
+      why: Bessey et al. 2010. Limiar de falso positivo e o mecanismo do "vicious cycle".
+    - id: "DOI 10.1145/2970276.2970347"
+      ledger: evidence/literature/ase-2016-what-developers-want-program-analysis.yaml
+      why: >
+        Christakis e Bird 2016. A unica DISTRIBUICAO quantitativa de tolerancia a falso positivo
+        localizada, com n declarado.
+    - id: "DOI 10.1145/3715729"
+      why: >
+        Hu et al. 2025 (FSE). Evidencia do LADO DO RISCO da catraca: supressoes crescem e 50,8%
+        delas nao afetam warning nenhum. Sem entrada dedicada no ledger ate agora.
+conclusion: >
+  A EXISTENCIA do portao por delta tem apoio externo consideravel, e a chave de identidade
+  adotada pelo ADR 0042 converge de forma independente com a do Infer. O DESENHO FINO nao tem.
+  Especificamente, e este e o resultado que importa: nenhuma fonte localizada mede um gate
+  BLOQUEANTE, nem um gate cujo consumidor seja o proprio modelo que escreveu o codigo. Todos os
+  limiares de tolerancia a falso positivo publicados pressupoem um humano que pode dizer "nao".
+limits:
+  - >
+    NAO ENCONTRADO, e registrado como tal: nenhum estudo revisado por pares que compare
+    "gate sobre codigo novo" contra "gate sobre a arvore" medindo desfecho (defeito escapado,
+    tempo, abandono). O que existe e relato industrial convergente mais material de fornecedor.
+    Isto e lacuna de busca, NAO evidencia de que o desenho seja ruim.
+  - >
+    NAO ENCONTRADO: literatura sobre estabilidade de identificadores de regra entre versoes de
+    analisador. O defeito G65 deste repositorio (o `E999` removido pelo ruff quebrou a
+    classificacao) nao tem precedente publicado localizado.
+  - >
+    NAO ENCONTRADO: qualquer medida da taxa de corrupcao de codigo CORRETO induzida por um
+    analisador que erra ao falar com um agente. O mecanismo esta demonstrado
+    (evidence/literature/arxiv-2310.12397.yaml, controle "evil"); a magnitude no dominio de
+    codigo, nao.
+  - >
+    NAO ENCONTRADO: qualquer fonte que trate de repositorio com divida em massa NAO RASTREADA -
+    o caso concreto deste repositorio, com 2691 arquivos untracked pre-existentes (fonte:
+    medicao local em /var/www/amaral-intern-hub, 2026-09-04).
+  - >
+    ACESSO: ACM Digital Library e cacm.acm.org bloqueiam fetcher automatizado (HTTP 403,
+    verificado nesta busca). Todas as citacoes vem de PDF de autor, manuscrito aceito ou copia
+    institucional, e a paginacao publicada vem do dblp. Diferencas entre manuscrito e versao
+    final NAO foram conferidas.
+  - >
+    RECONFERENCIA: os PDFs foram lidos por contexto delegado, nao reabertos por esta sessao.
+    Duas entradas (arxiv-2311.07482 e arxiv-2407.12241) tiveram APENAS o abstract lido e por isso
+    NAO entraram como matches.

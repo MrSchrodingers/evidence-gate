@@ -26,6 +26,12 @@ chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL
 
 command -v jq >/dev/null 2>&1 || { echo "NAO VERIFICADO: jq ausente." >&2; exit 2; }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# LEDGER ISOLADO (G76/CI11). Esta suite NAO executa o hook - ela manipula copias dele em fixture,
+# e o guarda CI11 casa a mencao em posicao executavel por INCLUSAO EXCESSIVA, de proposito: o
+# predicado textual nao separa `bash <caminho>/verify-gate.sh` executado de citado, e errar para o
+# lado de exigir a variavel custa uma linha, enquanto errar para o outro devolve a suite ao ledger
+# do operador. Se algum caso desta suite passar a executar uma copia, a isolacao ja esta aqui.
+export EVIDENCE_LEDGER_DIR="$T/ledger"
 FK="$T/raiz"; mkdir -p "$FK"
 
 echo "== MG1. a especificacao de hooks tem FONTE UNICA =="

@@ -57,7 +57,7 @@ descorrelacao de erro; aqui a correlacao e 1 por construcao.
 > `execution/agents/refutador.md` e na §3 da config global do operador.
 
 Isso tem nome na literatura: e **auto-correcao intrinseca**, definida por Huang et al.,
-"Large Language Models Cannot Self-Correct Reasoning Yet" (ICLR 2024) como "an LLM attempts to
+"Large Language Models Cannot Self-Correct Reasoning Yet" (ICLR 2024, arXiv:2310.01798) como "an LLM attempts to
 correct its initial responses based solely on its inherent capabilities, without the crutch of
 external feedback", com o resultado de que "LLMs struggle to self-correct their responses
 without external feedback, and at times, their performance even degrades after self-correction".

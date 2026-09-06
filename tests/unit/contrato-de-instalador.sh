@@ -26,6 +26,15 @@
 # instalado - disso cuidam install/verify.sh e tests/unit/managed.sh.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
+# TMPDIR DAS SUITES: esta suite nao toma o lock (por desenho), mas cria temporarios igual as
+# outras. Sem esta linha ela continuaria escrevendo em `/tmp`, que e tmpfs com teto FIXO de
+# inodes - a causa medida de tres travamentos da bancada num dia. Ver tests/lib/tmpdir.sh.
+if [ -r "$(dirname "$0")/../lib/tmpdir.sh" ]; then
+  . "$(dirname "$0")/../lib/tmpdir.sh"
+  _tb="$(tollens_tmpdir_base 2>/dev/null || true)"
+  [ -n "$_tb" ] && [ -d "$_tb" ] && [ -w "$_tb" ] && export TMPDIR="$_tb"
+  unset _tb
+fi
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1)); else echo "  FAIL  $1 (got=$2 want=$3)"; F=$((F+1)); fi; }
 
@@ -360,7 +369,99 @@ chk "  e a varredura ACHOU referencias (nao passou por vacuidade)" \
 # que NAO fixa a propria contagem nao pode ter o numero publicado em `docs/status.generated.md`,
 # porque um caso pulado em silencio mudaria o artefato sem deixar a suite vermelha - que e o G22.
 # Esta suite tem contagem estavel medida (47); o pino a torna verificavel em vez de presumida.
-EXPECTED=47
+echo "== CI11. suite que invoca o Stop-gate isola o ledger =="
+# G76. `verify-gate.sh` grava em `${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}` e NENHUMA suite
+# exportava a variavel: toda execucao de teste injetava paradas SINTETICAS no ledger operacional,
+# no mesmo diretorio que serve de evidencia sobre uso real. Medido em 2026-09-02, ao tentar medir
+# a distribuicao de vereditos: 1637 arquivos de ledger criados desde 2026-09-01, quase todos de
+# teste, tornando os dois dias inutilizaveis como medida.
+# O dano tem SEGUNDA direcao, e ela e pior: o ledger tambem e CACHE - `pass` do mesmo
+# `(snapshot, verifiers, env)` curto-circuita -, entao um teste podia herdar `pass` de OUTRO teste
+# com a mesma arvore e nunca executar o verificador que ele afirma medir.
+# DERIVADO, nao lista: varre tests/ atras de quem invoca o hook e exige a variavel no mesmo
+# arquivo. Lista escrita a mao envelheceria na primeira suite nova. O predicado de INVOCACAO e
+# TEXTUAL e por isso INCLUSIVO DEMAIS - `tests/unit/managed.sh` casa por uma string dentro de
+# fixture, nao por execucao. Mantido assim de proposito: separar citado de executado exigiria
+# parsear shell, e o custo de exigir a variavel a mais e uma linha, enquanto o custo de deixar
+# passar e devolver a suite ao ledger do operador. Este repositorio ja declara esse tradeoff na
+# CAMADA 2 de cobertura.
+#
+# A3 DO REVISOR: o predicado de ISOLAMENTO era `grep -q 'EVIDENCE_LEDGER_DIR'` - satisfeito por
+# um COMENTARIO que so cita a variavel, sem nenhuma atribuicao. Demonstrado com uma suite
+# sintetica que executa o gate e so MENCIONA a variavel: o predicado antigo APROVAVA (nada foi
+# isolado). O predicado abaixo passa a exigir ATRIBUICAO (`EVIDENCE_LEDGER_DIR=`, com ou sem
+# `export` na frente), no mesmo espirito textual do predicado de invocacao acima - ainda nao
+# parseia shell, mas deixa de aceitar CITACAO como ISOLAMENTO.
+_PADRAO_ISOLA_LEDGER='(^|[^A-Za-z0-9_])(export[[:space:]]+)?EVIDENCE_LEDGER_DIR='
+# AUTO-REFERENCIA MEDIDA (a mesma classe do A3): este proprio arquivo CASA o predicado de
+# INVOCACAO, porque o comentario duas linhas abaixo cita `bash "$GATE"` entre backticks para
+# EXPLICAR o predicado - nao para executa-lo. O comentario anterior a este ja afirmava "a mencao
+# em comentario nao conta, senao este proprio arquivo entraria na varredura", mas nada no CODIGO
+# impedia isso: era afirmacao, nao guarda. Confirmado abaixo, e so entao pulado.
+grep -qE '(bash|sh) +"?\$?\{?[A-Za-z_]*\}?[^"]*verify-gate\.sh|bash "\$GATE"' \
+  "tests/unit/contrato-de-instalador.sh"
+chk "  CI11: auto-referencia confirmada - este arquivo casa a deteccao de invocacao por comentario" $? 0
+_SEM_LEDGER=""
+for _t in tests/unit/*.sh tests/mutation/*.sh; do
+  [ -f "$_t" ] || continue
+  # PULA A SI MESMO. Sem isto, o predicado de isolamento abaixo tambem CASARIA neste arquivo
+  # pela mesma razao estrutural: a linha que DEFINE `_PADRAO_ISOLA_LEDGER` contem o texto
+  # `EVIDENCE_LEDGER_DIR=` (tem que conter, e o padrao que ela declara), entao sem o skip este
+  # arquivo aprovaria de novo por auto-referencia - so que no predicado NOVO em vez do antigo.
+  [ "$_t" = "tests/unit/contrato-de-instalador.sh" ] && continue
+  grep -qE '(bash|sh) +"?\$?\{?[A-Za-z_]*\}?[^"]*verify-gate\.sh|bash "\$GATE"' "$_t" || continue
+  # FALSO POSITIVO MEDIDO, e ele estava VIVO em `HEAD` antes desta correcao: o predicado e
+  # TEXTUAL e nao segue `source`. `tests/unit/delta-e2e.sh` isola o ledger, mas recebe o
+  # isolamento de `tests/lib/ambiente.sh` - a FONTE UNICA criada justamente para nao duplicar a
+  # atribuicao em cada suite. O predicado acusava a suite que faz a coisa certa pelo caminho
+  # certo. Reproduzido num worktree limpo de HEAD: `FAIL nenhuma suite escreve no ledger do
+  # operador (got= tests/unit/delta-e2e.sh)`, PASS=52 esperado 53 - sem nenhuma alteracao local.
+  #
+  # A correcao NAO afrouxa: carregar `lib/ambiente.sh` so vale como isolamento se aquele arquivo
+  # DE FATO atribuir a variavel, o que e conferido aqui, a cada volta. Se alguem esvaziar
+  # `ambiente.sh`, toda suite que dependia dele volta a ser acusada - que e o comportamento
+  # correto.
+  if grep -qE "$_PADRAO_ISOLA_LEDGER" "$_t"; then
+    :
+  elif grep -qE '(^|[^A-Za-z0-9_])\.[[:space:]]+[^;]*lib/ambiente\.sh' "$_t" \
+       && grep -qE "$_PADRAO_ISOLA_LEDGER" tests/lib/ambiente.sh; then
+    :
+  else
+    _SEM_LEDGER="$_SEM_LEDGER $_t"
+  fi
+done
+chk "nenhuma suite escreve no ledger do operador" "$_SEM_LEDGER" ""
+# ANTIVACUIDADE: se o padrao de busca parar de casar, a varredura passa por nao achar ninguem.
+_N_INVOCAM=0
+for _t in tests/unit/*.sh tests/mutation/*.sh; do
+  grep -qE '(bash|sh) +"?\$?\{?[A-Za-z_]*\}?[^"]*verify-gate\.sh|bash "\$GATE"' "$_t" 2>/dev/null && _N_INVOCAM=$((_N_INVOCAM+1))
+done
+chk "  e a varredura de fato encontra suites que invocam o hook" "$([ "$_N_INVOCAM" -ge 3 ] && echo sim || echo "nao($_N_INVOCAM)")" sim
+
+echo
+echo "== CI11a. o predicado de isolamento discrimina ATRIBUICAO de MENCAO (suites sinteticas, "
+echo "nao a arvore real - a mesma classe de prova que o A3 do revisor mediu contra uma suite "
+echo "que so cita a variavel e o predicado antigo aprovava) =="
+_CI11D="$(mktemp -d "$TMP/ci11.XXXXXX")"
+cat > "$_CI11D/so-menciona.sh" <<'FIX'
+#!/usr/bin/env bash
+# nota para quem ler: verify-gate.sh grava em EVIDENCE_LEDGER_DIR, mas esta suite nunca a
+# exporta - o comentario CITA a variavel sem isolar nada.
+bash "$GATE"
+FIX
+cat > "$_CI11D/atribui.sh" <<'FIX'
+#!/usr/bin/env bash
+export EVIDENCE_LEDGER_DIR="$TMP/ledger"
+bash "$GATE"
+FIX
+grep -qE '(bash|sh) +"?\$?\{?[A-Za-z_]*\}?[^"]*verify-gate\.sh|bash "\$GATE"' "$_CI11D/so-menciona.sh"
+chk "CI11a: a fixture sintetica de fato invoca o gate (candidata valida a isolamento)" $? 0
+grep -qE "$_PADRAO_ISOLA_LEDGER" "$_CI11D/so-menciona.sh"
+chk "  CI11a: o predicado novo RECUSA a suite que so MENCIONA a variavel (nada isolado)" $? 1
+grep -qE "$_PADRAO_ISOLA_LEDGER" "$_CI11D/atribui.sh"
+chk "  CI11a: o mesmo predicado ACEITA a suite que de fato ATRIBUI a variavel" $? 0
+
+EXPECTED=53
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

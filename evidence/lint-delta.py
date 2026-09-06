@@ -40,6 +40,10 @@ O QUE ESTE ARQUIVO NAO FAZ, declarado: ele nao executa o analisador nem le o rep
 diagnosticos, hunks e baseline, e devolve veredito. Fronteira escolhida para que o nucleo seja
 testavel sem repo, sem rede e sem o hook - a logica que decide bloqueio nao pode morar dentro de
 um executor de 400 linhas de shell que ninguem consegue exercitar isoladamente.
+
+PROCEDENCIA DA MEDICAO que motivou este nucleo: o registro esta em
+`evidence/literature/local-2026-08-31-portao-por-delta.yaml` (local_experiment), com os
+limites declarados la.
 """
 from __future__ import annotations
 
@@ -196,6 +200,11 @@ def main(argv=None) -> int:
     # preexistente. Defeito achado pelo teste PONTA A PONTA; a suite unitaria nao o via porque
     # sempre passava `--hunks`.
     p.add_argument("--hunks", default="{}", help='JSON: {"arquivo.py": [[ini,fim], ...]}')
+    # G74, SEGUNDA INSTANCIA DE F3. `--raw` virou `--raw-file` por MAX_ARG_STRLEN e `--hunks`
+    # ficou como argv - nunca estourou porque, em repositorio grande, o parser de diff morria
+    # antes e `HUNKS` chegava como `{}`. Um defeito escondia o outro. Corrigido o parser, o mapa
+    # do amaral passou a ter 2685 chaves e o hook morreu com `Argument list too long`, exit 126.
+    p.add_argument("--hunks-file", default=None, help="caminho com o JSON de hunks (sem limite de argv)")
     p.add_argument("--baseline", default="", help="JSON: [fingerprint, ...] (vazio = sem baseline)")
     p.add_argument("--breakage-codes", required=True, help="lista separada por virgula")
     p.add_argument("--raw", default="", help="saida NATIVA do analisador (usar com --map)")
@@ -209,7 +218,7 @@ def main(argv=None) -> int:
     # Consequencia epistemica, e ela e a pior: a afirmacao "verificado em amaral-intern-hub:
     # bloqueiam 0, tolerados 6" NAO podia ter sido observada atraves do hook naquele repositorio.
     # Foi medida chamando este nucleo direto. Arquivo nao tem esse limite.
-    p.add_argument("--raw-file", default="", help="caminho com a saida NATIVA (sem limite de argv)")
+    p.add_argument("--raw-file", default=None, help="caminho com a saida NATIVA (sem limite de argv)")
     p.add_argument("--map", default="", help='JSON: {"path":"filename","line":"location.row",...}')
     p.add_argument("--strip-prefix", default="", help="prefixo absoluto a remover dos caminhos")
     p.add_argument("--nested-roots", default="", help="JSON: lista de checkouts aninhados (relativos)")
@@ -218,7 +227,12 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
 
     try:
-        if a.raw_file.strip():
+        if a.raw_file is not None:
+            if not a.raw_file.strip():
+                print("NAO VERIFICADO: --raw-file recebeu caminho VAZIO. Mesma classe de G78: "
+                      "criacao de temporario falhou e a saida do analisador nao existe.",
+                      file=sys.stderr)
+                return EXIT_NAO_VERIFICADO
             a.raw = pathlib.Path(a.raw_file).read_text(encoding="utf-8", errors="replace")
             # `--raw-file` VAZIO nao e arvore limpa: e leitura que nao produziu nada. Cair no
             # `--diagnostics` default (`[]`) transformaria isso em "nenhum diagnostico", que e
@@ -237,7 +251,35 @@ def main(argv=None) -> int:
         else:
             diagnosticos = json.loads(a.diagnostics)
         raizes = tuple(json.loads(a.nested_roots)) if a.nested_roots.strip() else ()
-        hunks = {k: [tuple(x) for x in v] for k, v in json.loads(a.hunks).items()}
+        # `--hunks-file` VENCE `--hunks`, e um arquivo VAZIO nao e "{}": e leitura que nao
+        # produziu nada, e cair no default silencioso tornaria toda higiene ignorada - o mesmo
+        # buraco que G74 fechou no executor, aqui dentro do nucleo.
+        # S4 DO REVISOR: o predicado era `if a.hunks_file:` (so-nao-vazio) contra `if
+        # a.raw_file.strip():` (nao-so-espaco) para `--raw-file` alguns blocos acima - assimetria
+        # sem motivo. Com `--hunks-file " "` o valor era truthy, tentava ler o caminho `" "` como
+        # arquivo, e o `OSError` subia ate o `except` generico la embaixo: fecha-fechado (correto),
+        # mas com a mensagem generica de "entrada ilegivel" em vez desta, mais especifica.
+        # Alinhado ao mesmo predicado de `--raw-file`.
+        # S4/C3: CAMINHO VAZIO NAO E "NAO FORNECEU". `default=None` separa as duas coisas, e a
+        # separacao importa porque a unica forma de chegar aqui com string vazia e quem chamou ter
+        # TENTADO passar um arquivo e falhado - foi exatamente o `mktemp` de G78, que produzia
+        # `--hunks-file ""`, caia no default `{}` e APROVAVA o turno. Alinhar os dois predicados
+        # pela frouxidao (tratar vazio como ausente) tornaria esse caminho MAIS facil de alcancar;
+        # a simetria certa e pela severidade.
+        if a.hunks_file is not None:
+            if not a.hunks_file.strip():
+                print("NAO VERIFICADO: --hunks-file recebeu caminho VAZIO. Quem chamou tentou "
+                      "passar um arquivo e nao conseguiu; o mapa de linhas tocadas nao existe.",
+                      file=sys.stderr)
+                return EXIT_NAO_VERIFICADO
+            bruto_hunks = pathlib.Path(a.hunks_file).read_text(encoding="utf-8")
+            if not bruto_hunks.strip():
+                print("NAO VERIFICADO: --hunks-file vazio. O mapa de linhas tocadas nao foi lido.",
+                      file=sys.stderr)
+                return EXIT_NAO_VERIFICADO
+        else:
+            bruto_hunks = a.hunks
+        hunks = {k: [tuple(x) for x in v] for k, v in json.loads(bruto_hunks).items()}
         baseline = set(json.loads(a.baseline)) if a.baseline.strip() else set()
     except (json.JSONDecodeError, TypeError, ValueError, KeyError, OSError) as exc:
         print(f"NAO VERIFICADO: entrada ilegivel ({exc}). O turno NAO foi julgado.", file=sys.stderr)

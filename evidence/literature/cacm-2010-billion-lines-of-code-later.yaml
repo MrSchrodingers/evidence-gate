@@ -1,0 +1,108 @@
+# Camada de qualidade de evidencia - ver evidence/validate-literature.py. Verde aqui e FORMA, nao
+# fidelidade a fonte primaria.
+#
+# POR QUE ESTA ENTRADA EXISTE. Este repositorio produziu, em producao, 79 achados de higiene
+# alheios ao turno num repositorio com divida pre-existente, e a sessao entrou em laco. A pergunta
+# "a partir de que taxa de falso positivo um portao deixa de ser portao" era respondida por
+# intuicao. Esta e a fonte canonica que a responde com numero.
+literature_id: cacm-2010-billion-lines-of-code-later
+citation: >-
+  Bessey, A.; Block, K.; Chelf, B.; Chou, A.; Fulton, B.; Hallem, S.; Henri-Gros, C.; Kamsky, A.;
+  McPeak, S.; Engler, D. A few billion lines of code later: using static analysis to find bugs in
+  the real world. Communications of the ACM, v. 53, n. 2, p. 66-75, 2010. DOI
+  10.1145/1646353.1646374. PDF completo lido em copia hospedada pela Columbia; paginacao 66-75
+  conferida nos marcadores do proprio PDF.
+identifier: DOI 10.1145/1646353.1646374
+url: https://www.cs.columbia.edu/~junfeng/18sp-e6121/papers/coverity.pdf
+cited_in:
+- docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
+- evidence/literature/searches/BL-0002-portao-por-delta.yaml
+provenance: peer_reviewed
+study_quality:
+  benchmark: >-
+    Nao e benchmark: relato de experiencia de uma decada comercializando o Coverity sobre "a few
+    billion lines of code" (fonte: titulo e corpo).
+  n: >-
+    Nao ha n declarado para a afirmacao sobre o limiar - e julgamento acumulado dos autores, nao
+    medida (fonte: secao "False Positives").
+  models: Nao se aplica - analisador estatico comercial, sem modelo de linguagem.
+  scaffold: >-
+    Ferramenta comercial entregue a clientes, com consumidor HUMANO que pode ignorar o aviso
+    (fonte: corpo do artigo).
+  oracle: >-
+    Nenhum oraculo executavel: o desfecho relatado e adocao/abandono observado em campo, sem
+    instrumentacao publicada.
+  baseline: "[nao verificado] - nao ha braco de comparacao."
+  trials_repeated: "[nao verificado]"
+  uncertainty_reported: "[nao verificado] - nenhum intervalo, nenhum teste."
+  code_data_available: "[nao verificado] - dados comerciais, nao publicados."
+  replicated: false
+applicability:
+  domain_similarity: >-
+    Alta - analise estatica sobre codigo real, com a mesma tensao entre cobertura e ruido que o
+    portao deste repositorio enfrenta (fonte - findings.limiar_30pct abaixo).
+  scaffold_similarity: >-
+    Baixa - consumidor humano, aviso ignoravel, sem bloqueio. Este repositorio bloqueia a parada
+    do turno de um agente.
+  oracle_similarity: >-
+    Baixa - o desfecho e adocao observada informalmente, nao verificacao executavel.
+inference_strength: SUGGESTIVE
+inference_rationale: >-
+  O mecanismo descrito - o "vicious cycle" em que baixa confianca faz rotular achado verdadeiro
+  como falso, o que baixa mais a confianca - descreve com precisao o que foi observado neste
+  repositorio, e por isso e util como CAUTELA DE PROJETO. Mas o numero "more than 30%" nao vem de
+  medicao: e julgamento de fornecedor sobre experiencia de campo, sem n, sem instrumento, sem
+  dispersao, e os proprios autores o apresentam como "in our experience". Tratar 30% como limiar
+  calibrado seria emprestar a um julgamento a autoridade de uma medida. Por isso SUGGESTIVE, e
+  nao SUPPORTED - a fonte quantitativa para tolerancia a falso positivo e
+  evidence/literature/ase-2016-what-developers-want-program-analysis.yaml, que tem n e
+  distribuicao.
+findings:
+- metric: limiar_30pct
+  value: "mais de 30% de falso positivo faz a ferramenta ser ignorada"
+  source: fulltext
+  note: >-
+    Citacao verbatim da secao "False Positives": "False positives do matter. In our experience,
+    more than 30% easily cause problems. People ignore the tool. True bugs get lost in the false.
+    A vicious cycle starts where low trust causes complex bugs to be labeled false positives,
+    leading to yet lower trust. We have seen this cycle triggered even for true errors. If people
+    don't understand an error, they label it false. And done once, induction makes the (n+1)th
+    time easier."
+- metric: alvo_operacional_20pct
+  value: "abaixo de 20% para checkers estaveis"
+  source: fulltext
+  note: >-
+    Verbatim: "We aim for below 20% for 'stable' checkers. When forced to choose between more
+    bugs or fewer false positives we typically choose the latter."
+- metric: efeito_de_ordem_nao_so_de_taxa
+  value: "os primeiros N achados decidem a adocao (N ~ 3)"
+  source: fulltext
+  note: >-
+    Verbatim: "The initial reports matter inordinately; if the first N reports are false
+    positives (N = 3?), people tend to utter variants on 'This tool sucks.'" - o ponto de
+    interrogacao esta NO ORIGINAL. Consequencia para este repositorio: a ordem em que os achados
+    aparecem importa tanto quanto a taxa, e um portao que abre com ruido alheio ao turno gasta a
+    confianca antes de ter chance de acertar.
+- metric: falso_positivo_nao_e_problema_de_tecnologia
+  value: "posicao revista pelos autores ao longo da decada"
+  source: fulltext
+  note: >-
+    Verbatim: "We initially thought false positives could be eliminated through technology.
+    Because of this dynamic we no longer think so."
+limitations:
+- >-
+  O NUMERO CENTRAL NAO E MEDIDO. "more than 30%" e apresentado como "in our experience" (fonte -
+  findings.limiar_30pct acima): sem n, sem instrumento, sem dispersao, sem definicao operacional
+  de "ignora a ferramenta". Citar como se fosse limiar calibrado seria o defeito que este
+  repositorio caca.
+- >-
+  JULGAMENTO DE FORNECEDOR sobre o proprio produto, com incentivo declarado a favor de menos
+  falso positivo. Isso nao invalida o mecanismo, mas pesa contra a magnitude.
+- >-
+  CONSUMIDOR HUMANO E AVISO IGNORAVEL. Todo o raciocinio de adocao pressupoe alguem que pode
+  dizer "nao" ao aviso. Nao ha nesta fonte nada sobre gate bloqueante, nem sobre consumidor que
+  seja o proprio gerador do codigo.
+- >-
+  EXPERIENCIA ANTERIOR A 2010 (fonte: ano de publicacao no registro do editor) e sobre analise
+  interprocedural em C/C++. A transposicao para linters de higiene (ruff, eslint) sobre delta e
+  por analogia, nao por medida - [nao verificado] que os limiares se transportem.

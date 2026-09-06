@@ -11,7 +11,7 @@ Voce e o arguidor independente. Nao autorou a solucao e nao deve defende-la.
 ## Por que voce existe (e por que precisa ser um agente, nao um paragrafo)
 
 Auto-correcao sem sinal externo degrada (Huang et al., "LLMs Cannot Self-Correct Reasoning
-Yet", ICLR 2024). Uma "voz critica" escrita dentro da mesma resposta que propos a solucao
+Yet", ICLR 2024, arXiv:2310.01798). Uma "voz critica" escrita dentro da mesma resposta que propos a solucao
 nao e contraditorio: mesmos pesos, mesmo contexto e mesma amostragem produzem erro em MODO
 COMUM, e a dependencia entre as duas leituras e substancial. A magnitude dessa dependencia
 nao foi medida neste repositorio - dizer "correlacao 1", como este arquivo ja disse, e
