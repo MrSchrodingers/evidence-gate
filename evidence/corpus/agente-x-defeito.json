@@ -1803,7 +1803,7 @@
       "review_round": "analista-otimalidade, perfil de custo do Stop-gate",
       "class": "o-portao-gastava-quase-tudo-em-escriturar-identidade-e-quase-nada-em-julgar",
       "defect": "90% do custo de uma parada, e 96% de uma parada com cache HIT, eram lacos de um processo por arquivo para calcular identidade; o analisador que de fato julga custava 1,0%",
-      "measured": "Perfil por etapa em /var/www/amaral-intern-hub (|CHANGED|=2717, 2693 untracked): bloco SNAPSHOT 17,6 s (55,3%) e laco de idade do G82 11,1 s (34,7%) num MISS de 31,9 s; `ruff` 0,32 s (1,0%). Num HIT, SNAPSHOT sozinho e 95,9% - e ele roda ANTES da consulta ao cache, entao era pago inteiro mesmo quando nada mudou (99,9% do custo de um HIT ocorre antes de o cache poder decidir). Causa: `$(sha256sum ... | cut ...)` por arquivo = 3 processos por entrada (~8150 por parada) e `stat -c %Y` por arquivo (~5400). CORRIGIDO com duas chamadas em lote em cada bloco. Equivalencia PROVADA antes de aplicar, nao assumida: digest identico em 5 repositorios (amaral, evidence-gate, worker-crawlers, piret, DEBTHUB-2.1) e particao identica (2691 PREEXISTENTE nos dois casos). Digest identico e o que preserva os 5000+ registros `pass` do ledger, chaveados por ele. Bloco SNAPSHOT isolado: 60,35 s -> 1,85 s. Ponta a ponta na versao otimizada: MISS 10,7 s, HIT 2,8 s. NAO VERIFICADO: comparacao ponta a ponta antes/depois sob a MESMA carga - o backup local se perdeu; o que esta medido e o efeito por bloco, com controle.",
+      "measured": "Perfil por etapa em /var/www/amaral-intern-hub (|CHANGED|=2717, 2693 untracked): bloco SNAPSHOT 17,6 s (55,3%) e laco de idade do G82 11,1 s (34,7%) num MISS de 31,9 s; `ruff` 0,32 s (1,0%). Num HIT, SNAPSHOT sozinho e 95,9% - e ele roda ANTES da consulta ao cache, entao era pago inteiro mesmo quando nada mudou (99,9% do custo de um HIT ocorre antes de o cache poder decidir). Causa: `$(sha256sum ... | cut ...)` por arquivo = 3 processos por entrada (~8150 por parada) e `stat -c %Y` por arquivo (~5400). CORRIGIDO com duas chamadas em lote em cada bloco. Equivalencia PROVADA antes de aplicar, nao assumida: digest identico em 5 repositorios (amaral, evidence-gate, worker-crawlers, piret, DEBTHUB-2.1) e particao identica (2691 PREEXISTENTE nos dois casos). Digest identico e o que preserva os 5000+ registros `pass` do ledger, chaveados por ele. Bloco SNAPSHOT isolado: 60,35 s -> 1,85 s. Ponta a ponta na versao otimizada: MISS 10,7 s, HIT 2,8 s. NAO VERIFICADO: comparacao ponta a ponta antes/depois sob a MESMA carga - o backup local se perdeu; o que esta medido e o efeito por bloco, com controle. MEDICAO EM PRODUCAO 2026-09-08, com o hook EM VIGOR (/opt/tollens/hooks/verify-gate.sh) sobre /var/www/amaral-intern-hub (2691 untracked, 2717 CHANGED): cache MISS 4,1 s e cache HIT 0,5 s. Referencia medida antes da onda no mesmo repositorio: MISS de 31,9 s a 112 s, HIT de 38,9 s a 64,6 s. O ganho maior esta no caminho quente, que e o caso comum: uma parada com cache valido custava dezenas de segundos e passou a custar meio segundo.",
       "source_ref": "evidence/hooks/verify-gate.sh",
       "resolution_ref": "evidence/hooks/verify-gate.sh"
     },
@@ -1858,6 +1858,19 @@
       "measured": "(a) REGISTRO: testei `humano`, `romano`, `germano` - a classe SUBSTRING - e nao testei a HOMOGRAFA, palavra inteira com uso formal. Medido: `valeu a pena` (preterito de VALER) e `beleza` como substantivo comum reprovavam relatorio tecnico correto. Corrigido: os dois so contam como VOCATIVO, seguidos de pontuacao terminal ou fim de linha. Verificado 7/7. (b) FONTE: `MARCAS_INTERNAS` continha `docs/` e `tests/` como substring livre COM PRECEDENCIA sobre URL, entao `https://ieeexplore.ieee.org/docs/1234` era classificada como interna e o validador acusava o autor de ter consultado apenas o proprio repositorio. Corrigido: a URL decide primeiro. Verificado 8/8. AS DUAS SAO A MESMA CLASSE DE DANO e ela e especifica deste harness: acusacao falsa contra um consumidor que, por evidence/literature/arxiv-2310.12397.yaml (controle 'evil'), aplica a correcao pedida em 94% dos casos MESMO QUANDO A ACUSACAO E FALSA - ou seja, falso positivo aqui nao produz ruido, produz edicao de texto e de codigo corretos.",
       "source_ref": "evidence/hooks/subagent-contract.sh",
       "resolution_ref": "evidence/validate-literature.py"
+    },
+    {
+      "finding_id": "G96",
+      "wave": 25,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "verificacao de ativacao pedida pelo operador, 2026-09-08",
+      "class": "ativacao-em-sessao-ja-aberta-era-suposicao-nao-medida",
+      "defect": "nao se sabia se uma sessao iniciada ANTES do deploy passa a operar sob a politica nova, ou segue com a anterior ate reiniciar",
+      "measured": "ATRIBUICAO: `sonda-de-sessao-viva` nomeia o agente `investigador`, e nao foi ele - a medicao saiu de aplicar `subagent-probe.sh`, instrumento ja existente, e ler o payload que ele guardava. E a SEGUNDA vez nesta onda que atribui procedencia a um agente que nao produziu o achado (a primeira foi G87); `tests/unit/governance-links.py` acusou as duas. MEDIDO NO PAYLOAD REAL que o runtime entrega, via `~/.claude/logs/subagent-probe.jsonl` (667 linhas, 547 SubagentStop). Sessao iniciada 2026-09-04 00:35:36; `~/.claude/settings.json` alterado 18:25:42 e `managed-settings.json` 18:28:57, ambos DEPOIS. Sonda: subagente `general-purpose` instruido a responder com UMA FRASE, sem blocos. Sequencia capturada: (1) SubagentStop com 'O hostname desta maquina e ...' - a frase curta; (2) SubagentStop com '**RESULTADO** ...' - reescrito com os quatro blocos; (3) perguntado se fora rejeitado, respondeu '(A) Tentei responder com uma frase curta e fui rejeitado por essa mensagem automatica' - e ESSA resposta foi rejeitada de novo e substituida pelo relatorio, razao de nunca ter chegado a sessao principal. CONCLUSAO: sessao ja aberta RELE o settings e opera sob a politica nova; o contrato alcanca `general-purpose`, que escapava do matcher antigo. DOIS INSTRUMENTOS FORAM DESCARTADOS NO CAMINHO, e os dois quase viraram conclusao errada: (i) contagem de SubagentStop em /var/log/tollens-activation.jsonl deu ZERO em 667 eventos - aquele log e do `activation-log.sh`, registrado APENAS em SubagentStart; reportar aquilo seria alarme falso de que o evento nao chega e a autoridade ampla e inerte; (ii) o `atime` do settings.json sugeria leitura recente, mas o filesystem usa `relatime` e a propria sessao leu o arquivo com `jq` varias vezes.",
+      "source_ref": "evidence/hooks/subagent-contract.sh",
+      "resolution_ref": "evidence/hooks/subagent-probe.sh"
     }
   ],
   "reading": [
@@ -1871,11 +1884,11 @@
   "completeness": "`tests/unit/governance-links.py` confere que todo identificador citado com marcador estruturado nos ADRs (`**C1 -`, `**F2 -`, `**A4 -`) aparece como `finding_id` aqui. Antes dessa checagem o portao so recontava as linhas PRESENTES - consistencia interna, nunca completude do universo.",
   "derived": {
     "_comment": "BLOCO DERIVADO - nao editar a mao. `evidence/corpus/render.py` o recalcula e `tests/unit/governance-links.py` reprova se divergir dos findings. Existe porque o cabecalho deste arquivo declarava 'ondas 11 a 15' e ADR 0031..0035 enquanto os proprios dados ja tinham onda 17 e ADR 0036 - metadado de frame escrito a mao envelhece contra o dado que ele descreve.",
-    "n_findings": 140,
+    "n_findings": 141,
     "wave_min": 11,
     "wave_max": 25,
     "counts_by_mode": {
-      "aplicacao-de-instrumento": 25,
+      "aplicacao-de-instrumento": 26,
       "auditoria-externa": 45,
       "execucao-em-ambiente-alheio": 3,
       "execucao-hostil": 1,
@@ -1933,7 +1946,7 @@
     ],
     "by_state": {
       "open": 25,
-      "resolved": 115
+      "resolved": 116
     }
   },
   "historical_states": [
