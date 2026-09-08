@@ -9,6 +9,8 @@ citation: >-
 identifier: DOI 10.1109/ICSE.2015.76
 url: https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43322.pdf
 cited_in:
+- README.md#18.1 (referencia [12])
+- README.pt-BR.md#18.1 (referencia [12])
 - docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
 - evidence/literature/searches/BL-0002-portao-por-delta.yaml
 provenance: peer_reviewed

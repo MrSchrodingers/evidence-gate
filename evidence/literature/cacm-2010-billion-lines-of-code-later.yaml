@@ -15,6 +15,8 @@ citation: >-
 identifier: DOI 10.1145/1646353.1646374
 url: https://www.cs.columbia.edu/~junfeng/18sp-e6121/papers/coverity.pdf
 cited_in:
+- README.md#18.1 (referencia [13])
+- README.pt-BR.md#18.1 (referencia [13])
 - docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
 - evidence/literature/searches/BL-0002-portao-por-delta.yaml
 provenance: peer_reviewed

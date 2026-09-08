@@ -507,7 +507,73 @@ git mv grande.py renomeado.py
 chk "  CONTROLE: rename PURO nao bloqueia" "$(gate)" 0
 chk "  CONTROLE: e nao acusa divergencia" "$(grep -c 'DIVERGENTE' "$TMP/e")" 0
 
-EXPECTED=101
+echo "== DE21. o ledger RETEM a assinatura do que reprovou (G43, onda 26) =="
+# G43 pedia "um corpus de modos de falha de TRABALHO" e o `open_note` dizia que exigia coleta
+# inexistente. MEDIDO: a coleta ja ocorria 5495 vezes; o que faltava era RETENCAO. O analisador
+# emite `{"detalhe":[{"code":"F401","classe":"higiene"},...]}` a cada reprovacao e o ponto de
+# gravacao guardava so `falharam: python-analyzer` - UMA causa distinta para 5495 registros.
+repo d21
+printf 'import os\nimport sys\ndef f():\n    return jamais\n' > mau.py
+chk "reprovacao bloqueia" "$(gate)" 2
+_reg="$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1)"
+chk "  o registro traz o codigo da regra que bloqueou" \
+    "$(printf '%s' "$_reg" | jq -r '.modos.codes.F401 // 0')" 2
+chk "  e o codigo de QUEBRA, separado da higiene" \
+    "$(printf '%s' "$_reg" | jq -r '.modos.codes.F821 // 0')" 1
+chk "  e a classe agregada" \
+    "$(printf '%s' "$_reg" | jq -r '.modos.classes.higiene // 0')" 2
+# PRIVACIDADE: o ledger e registro de MODOS, nao copia do trabalho. `path` revela a estrutura do
+# projeto do operador e `message` carrega nomes de simbolos do codigo dele. Sem estes dois pares,
+# a retencao teria virado exfiltracao silenciosa do codigo alheio para um arquivo agregado.
+chk "  NAO vaza o caminho do arquivo" \
+    "$(printf '%s' "$_reg" | grep -c 'mau\.py')" 0
+chk "  NAO vaza a mensagem do diagnostico" \
+    "$(printf '%s' "$_reg" | grep -ci 'imported but unused')" 0
+# CONTROLE: turno limpo nao inventa modo nenhum. Sem ele, um `modos` sempre preenchido passaria.
+repo d21b; printf 'y = 2\n' > ok.py
+chk "  CONTROLE: turno que APROVA registra modos vazios" "$(gate)" 0
+chk "    (codes vazio)" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.modos.codes | length')" 0
+
+echo "== DE22. turno NAO JULGADO deixa rastro, em vez de silencio (onda 26) =="
+# MEDIDO antes da correcao: turno tocando so `.ts` sintaticamente quebrado, `.sql` com
+# `DROP TABLE users;` e Dockerfile com `curl | sh` saia rc=0, ZERO bytes e ZERO linhas no ledger.
+# O controle - mesmo turno trocando so a extensao para `.py` - saia rc=2 com registro. O silencio
+# era cobertura ausente, nao rig quebrado. O problema nunca foi APROVAR: foi NAO REGISTRAR, e com
+# isso "nao verifiquei" ficava indistinguivel de "nao houve turno" para qualquer auditoria.
+repo d22
+printf 'const x: number = "erro";\n' > q.ts
+printf 'DROP TABLE users;\n' > m.sql
+chk "turno sem adaptador aplicavel nao bloqueia" "$(gate)" 0
+chk "  mas DEIXA registro no ledger" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | wc -l)" 1
+chk "  com veredito proprio, nem pass nem fail" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.verdict')" unverified
+chk "  e nomeia as extensoes que ficaram fora" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.detail' | grep -c '\.ts')" 1
+# O registro `unverified` NAO pode ser reutilizavel como cache: se tivesse snapshot, uma arvore
+# nao julgada poderia curto-circuitar a proxima parada.
+# C1 DO REVISOR: `snapshot:""` colapsava TODO registro `unverified` de um repositorio no mesmo
+# balde de `evidence/probes/ledger-atribuicao.py` e corrompia tres medidas - `max_repeticoes`
+# 2 -> 40 sobre arvores DIFERENTES, `paradas: 43` com `fail+pass+gap = 3`, e a fracao de
+# reexecucoes redundantes 33,3% -> 2,3% sobre os mesmos fatos. A chave passou a ser propria.
+# O que o caso mede nao mudou: o registro nao pode casar o cache de aprovacao.
+chk "  o snapshot e proprio e prefixado (nao colapsa o probe)" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.snapshot' | grep -c '^unverified:')" 1
+chk "  e ele NUNCA casa o cache de aprovacao (prefixo fora do espaco de snapshots)" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.snapshot' | grep -cE '^[0-9a-f]{32}$')" 0
+# C2: as duas causas pedem remediacoes opostas - "escreva um adaptador" contra "aprove o que
+# existe". O registro tem de distinguir, porque o stderr distinguia e o ledger nao.
+chk "  e o motivo e nomeado, nao suposto" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | tail -1 | jq -r '.motivo')" sem-adaptador
+# CONTROLE: a chave do ledger usada aqui tem de ser a MESMA de `registra()`, senao os registros do
+# mesmo repositorio caem em arquivos diferentes e qualquer agregacao mente.
+printf 'import os\n' > agora.py
+gate >/dev/null
+chk "  CONTROLE: registro seguinte cai no MESMO arquivo de ledger" \
+    "$(cat "$(ledger_do_repo)" 2>/dev/null | wc -l)" 2
+
+EXPECTED=117
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

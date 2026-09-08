@@ -17,7 +17,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 | `tests/unit/fronteira-externa.sh` | 13 | 0 |
 | `tests/unit/managed.sh` | 66 | 0 |
 | `tests/unit/conformidade-managed.sh` | 21 | 0 |
-| `tests/unit/arnes-de-mutacao.sh` | 7 | 0 |
+| `tests/unit/arnes-de-mutacao.sh` | ? | 2 |
 | `tests/unit/schedule.sh` | 34 | 0 |
 | `tests/unit/fronteira-viva.sh` | 188 | 0 |
 | `tests/unit/literatura.sh` | 76 | 0 |
@@ -52,7 +52,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 | lint-delta (auto) | 11 | passo dedicado no CI |
 | managed-transitive-trust (auto) | 2 | NAO executado no CI |
 | skill-invocation-policy (auto) | 2 | NAO executado no CI |
-| verify-gate-delta (auto) | 15 | passo dedicado no CI |
+| verify-gate-delta (auto) | 18 | passo dedicado no CI |
 
 ## Cobertura de decisao (branch), medida via subprocesso instrumentado
 
