@@ -164,6 +164,37 @@ mutante MVG15 "A1: renomeacao volta a ser invisivel para a guarda de concordanci
   'if c[2]=="": pend=2; pend_add=c[0].strip()' \
   'if c[2]=="": pass'
 
+
+# --- ONDA 26: as duas garantias novas ---
+# Sem mutante, a retencao de modos (G43) e o registro de turno nao julgado podem ser desfeitos
+# com a suite verde - foi assim que G74 voltou como G74b e G78 na onda 25.
+
+mutante MVG16 "G43: o ledger volta a descartar a assinatura do que reprovou" \
+  '_m="$(printf '"'"'%s'"'"' "$OUT" | jq -c '"'"'[.detalhe[]? | {code, classe}]'"'"' 2>/dev/null)"' \
+  '_m=""'
+
+# MVG17 REESCRITO. A primeira versao trocava a projecao por `{code, classe, path}` e SOBREVIVEU -
+# nao porque a garantia esteja desprotegida, mas porque aquele ponto e INERTE para o resultado: o
+# agregador (`_mj`) extrai apenas `.code` e `.classe`, entao um campo a mais na projecao nunca
+# alcanca o ledger. A privacidade tem duas camadas, e derruba-la exigiria mutar as duas.
+# Isso e propriedade do desenho, nao do teste - mas um mutante que nao muda o resultado nao mede
+# nada, e mutante sobrevivente por inercia e pior que mutante ausente: parece cobertura.
+# A forma que VAZA por ponto unico e copiar o campo errado para dentro de `code`, que e o defeito
+# realista aqui (o agregador confia no nome do campo, nao no conteudo - ver A5 da revisao).
+mutante MVG17 "privacidade: o caminho do arquivo do operador vaza pelo campo `code`" \
+  "jq -c '[.detalhe[]? | {code, classe}]'" \
+  "jq -c '[.detalhe[]? | {code: .path, classe}]'"
+
+# MVG18 REESCRITO. A primeira versao ancorava no redirecionamento `>> "$_LED_UL/..."` usando
+# ASPAS DUPLAS, e o shell do arnes tentou EXPANDIR `$_LED_UL` e `$ROOT` no proprio contexto, onde
+# nao existem: sob `set -u` a suite abortou com `_LED_UL: unbound variable` - nem mutante morto
+# nem sobrevivente, execucao interrompida. A ancora nova nao contem `$`, e o defeito que ela
+# reintroduz e mais realista que o original: o registro passa a MENTIR sobre o veredito, gravando
+# como aprovado um turno que ninguem julgou. E a forma que o DE22 tem poder de falsear.
+mutante MVG18 "turno nao julgado passa a se registrar como APROVADO" \
+  'verdict:"unverified"' \
+  'verdict:"pass"' 
+
 if [ -n "${MVG_ONLY:-}" ]; then
   echo "EXECUCAO PARCIAL (MVG_ONLY='$MVG_ONLY') - NAO substitui a execucao completa."
   echo "MUTANTES=$((P-1+F)) MORTOS=$((P-1)) SOBREVIVENTES=$F"

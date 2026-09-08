@@ -12,6 +12,8 @@ citation: >-
 identifier: DOI 10.1145/2970276.2970347
 url: https://mariachris.github.io/Pubs/ASE-2016.pdf
 cited_in:
+- README.md#18.1 (referencia [14])
+- README.pt-BR.md#18.1 (referencia [14])
 - docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
 - evidence/literature/searches/BL-0002-portao-por-delta.yaml
 provenance: peer_reviewed

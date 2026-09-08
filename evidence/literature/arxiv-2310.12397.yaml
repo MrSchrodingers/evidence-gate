@@ -15,6 +15,8 @@ citation: >-
 identifier: arXiv:2310.12397
 url: https://arxiv.org/abs/2310.12397
 cited_in:
+- README.md#18.1 (referencia [15])
+- README.pt-BR.md#18.1 (referencia [15])
 - docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md (novo - registrado nesta onda)
 - evidence/literature/searches/BL-0002-portao-por-delta.yaml
 provenance: preprint

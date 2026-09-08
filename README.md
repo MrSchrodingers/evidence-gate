@@ -996,7 +996,20 @@ The following remain open limitations:
 - no longitudinal cost/latency study establishes economic benefit;
 - no independently authored external audit is claimed;
 - related foundation models can produce correlated review failures;
-- repository administrators can alter or bypass policy if governance allows it.
+- repository administrators can alter or bypass policy if governance allows it;
+- **the approval ledger is writable by the governed actor.** It lives under the actor's `$HOME`
+  and the hook runs with that identity. Appending a `pass` record carrying the current snapshot,
+  in the exact on-disk format, makes the gate exit 0 through the cache over a tree the analyzer
+  still reports as broken — reproduced. The cache and the escalation hatch are therefore
+  protection against *error and accidental repetition*, not against an adversary. Closing this
+  requires privilege separation, not a patch (finding G87);
+- **the linter is the only external oracle, and it sees a minority of the files.** Counted over
+  `/var/www`: 5,320 of 17,831 tracked files fall under an adapter (29.8%). `.ts` (1,352),
+  `.tsx` (830) and, elsewhere, `.rb` and `.vue` have no adapter at all. Everything other than the
+  analyzer's exit code is a check over artifacts the governed actor itself writes;
+- **a turn with no applicable adapter is not judged.** Since wave 26 it is *recorded* as
+  `verdict: unverified` with the extensions that fell outside, so "not verified" is no longer
+  indistinguishable from "no turn happened" — but recording is not judging.
 
 The project should therefore be described as an **evidence-oriented experimental harness**, not as a proof system for software correctness.
 
@@ -1129,7 +1142,37 @@ the runtime already implements, and it conflates organisational policy with pers
 state, auto-memory, mutable settings, session state, caches, and plugins in a single
 directory.
 
-### 16.3 Strict hook mode
+### 16.3 Subagent coverage: universal, not an allowlist
+
+The return contract (`evidence/hooks/subagent-contract.sh`) requires every subagent to close
+with RESULTADO / EVIDENCIA / RISCOS / PROPAGACAO and a verifiable anchor, or to state the
+`NAO VERIFICADO` token. Until wave 25 it was routed by a `matcher` listing the ten agents this
+repository defines — and the kernel announced the contract as universal.
+
+Measured on the permanent activation log (`/var/log/tollens-activation.jsonl`): **170 of 491
+recorded subagent launches (34%) fell outside the contract**. What escaped was not marginal:
+
+| agent type | launches outside the contract |
+|---|---|
+| `general-purpose` | 66 |
+| `workflow-subagent` | 54 |
+| `fork` | 19 |
+| `code-review` | 17 |
+| `Explore` | 5 |
+| `Plan` | 1 |
+
+The general-purpose agent, the workflow agent and the model's own fork returned reports under no
+obligation of evidence — and any new agent, from a plugin or a workflow, was born *outside* the
+rule by default. The matcher was removed and the filtering moved into the hook, where the
+exception is versioned with its reason: only `statusline-setup`, `output-style-setup` and
+typeless events are exempt, because they make no technical claim about an artifact.
+
+Verified against the hook in force: `general-purpose`, `workflow-subagent`, `fork`, `Explore`,
+`Plan` and `code-review` all return `rc=2` on a report without the four blocks, and `rc=0` with
+them. The `NAO VERIFICADO` escape hatch keeps working — an agent that could not obtain evidence
+says so instead of inventing it.
+
+### 16.4 Strict hook mode
 
 `allowManagedHooksOnly` restricts hook execution to the managed table. Before the switch,
 every hook fired twice — the managed and user tables summed. The precondition was measured
@@ -1142,7 +1185,7 @@ only in user (would be lost): NONE
 ```
 
 **This measurement is dated, and the document itself invalidates it.** It was taken *before* the
-correction described in 16.4, which moved the activation probe into the managed table. The managed
+correction described in 16.5, which moved the activation probe into the managed table. The managed
 table now carries **nine** event types; the ninth is `InstructionsLoaded`. The `only in user` line
 is still true — no user entry was lost — but the symmetry `8 = 8` no longer holds, and publishing
 it as current state would be the same defect this document records as `G36`: an artifact that is
@@ -1152,7 +1195,7 @@ The measured cost is real and is not hidden: plugin hook tables stop firing. Two
 plugins lost hooks when the flag was set; the exact set at the moment of measurement was not
 recorded, so that count is `NOT_VERIFIED` on re-inspection.
 
-### 16.4 Activation evidence, and the defect that enabling enforcement created
+### 16.5 Activation evidence, and the defect that enabling enforcement created
 
 `InstructionsLoaded` is a runtime event that fires when an instruction document is loaded
 into context. It carries `file_path`, `memory_type`, and `load_reason`. This is the
@@ -1171,7 +1214,7 @@ as the artifacts it measures.
 {"ev":"SubagentStart","a":"investigador"}
 ```
 
-### 16.5 Activation semantics differ per artifact class
+### 16.6 Activation semantics differ per artifact class
 
 "Active" cannot mean "was invoked at least once". Each class admits a different observable,
 and collapsing them produces a claim larger than the observation:
@@ -1189,7 +1232,7 @@ explicitly requesting dependency-graph analysis recorded tool calls and no skill
 invocation, with a positive control confirming the instrument was not blind. This is a
 routing property, and no permission change affects it.
 
-### 16.6 A second runtime, with a separate mechanism
+### 16.7 A second runtime, with a separate mechanism
 
 `managed-settings.json` governs Claude Code and does not reach Codex. Codex implements its
 own managed layer, read from `/etc/codex`, with `requirements.toml` carrying permission
@@ -1358,6 +1401,26 @@ The following works are the ones this document's argument actually depends on: t
 
 10. Liu, Y. et al. **"Do Not Mention This to the User": Detecting and Understanding Malicious Agent Skills in the Wild.** arXiv:2602.06547v4, accessed 2026-08-12.  
     https://arxiv.org/abs/2602.06547v4
+
+11. Distefano, D.; Fähndrich, M.; Logozzo, F.; O'Hearn, P. W. **Scaling static analyses at Facebook.** Communications of the ACM 62(8):62–70, 2019. DOI 10.1145/3338112.
+   https://discovery.ucl.ac.uk/id/eprint/10084236/
+   *The only located work that changes only the SCOPE — same analysis, same false-positive rate — and measures the outcome: fix rate from "near zero" to "over 70%" when Infer moved to diff time. It is the external support for this repository's decision to judge the delta rather than the tree, and its bug-equivalence key converged independently with the one adopted here.*
+
+12. Sadowski, C.; van Gogh, J.; Jaspan, C.; Söderberg, E.; Winter, C. **Tricorder: Building a Program Analysis Ecosystem.** ICSE 2015, 598–608. DOI 10.1109/ICSE.2015.76.
+   https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43322.pdf
+   *States the changed-lines policy in one sentence, and its footnote 2 already documents the exception this repository rediscovered by measurement and named the BREAKAGE class.*
+
+13. Bessey, A.; Block, K.; Chelf, B.; Chou, A.; Fulton, B.; Hallem, S.; Henri-Gros, C.; Kamsky, A.; McPeak, S.; Engler, D. **A few billion lines of code later.** Communications of the ACM 53(2):66–75, 2010. DOI 10.1145/1646353.1646374.
+   https://www.cs.columbia.edu/~junfeng/18sp-e6121/papers/coverity.pdf
+   *Source of the "vicious cycle" mechanism: low trust makes true findings be labelled false, which lowers trust further. Cited as design caution, not as a calibrated threshold — the 30% figure is vendor judgement, not measurement.*
+
+14. Christakis, M.; Bird, C. **What developers want and need from program analysis: an empirical study.** ASE 2016, 332–343. DOI 10.1145/2970276.2970347.
+   https://mariachris.github.io/Pubs/ASE-2016.pdf
+   *The only located quantitative distribution of false-positive tolerance (n=375): 90% accept up to 5%, only 24% tolerate 20%. Their number-one irritation is not false positives — it is "irrelevant checks turned on by default", which is the exact shape of findings alien to the turn.*
+
+15. Stechly, K.; Marquez, M.; Kambhampati, S. **GPT-4 Doesn't Know It's Wrong: An Analysis of Iterative Prompting for Reasoning Problems.** arXiv:2310.12397, FMDM@NeurIPS 2023.
+   https://arxiv.org/abs/2310.12397
+   *The finding that changes the cost calculus of this gate: in the "evil" control, where the critique points at a FALSE error, the model applies the "fix" in 94% of cases — the same rate as legitimate feedback, and the authors record that it "didn't discriminate between real errors or the evil case's false ones". A false positive here does not produce noise; it produces edits to correct code. Every scope correction in wave 25 therefore carries explicit negative controls.*
 
 ### 18.2 Corpus reviewed
 

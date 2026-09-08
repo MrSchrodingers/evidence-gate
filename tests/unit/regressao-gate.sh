@@ -482,7 +482,11 @@ chk "README EN e PT tem a MESMA sequencia de numeros de secao" "$_sec_en" "$_sec
 # ANTIVACUIDADE POR IGUALDADE, nao por piso. O valor e determinado pelo arquivo VERSIONADO, entao
 # nao ha razao de ambiente para tolerar desigualdade - e a desigualdade deixava passar a remocao
 # de 76% do documento.
-_N_SECOES_README=88
+# ONDA 26: 88 -> 89. A secao 16.3 (cobertura universal de subagentes) foi acrescentada aos DOIS
+# READMEs, e este valor e antivacuidade por IGUALDADE de proposito: ele so pode ser atualizado
+# junto com uma mudanca real de estrutura, e nunca afrouxado para um piso - o comentario acima
+# registra que a desigualdade deixava passar a remocao de 76% do documento.
+_N_SECOES_README=89
 chk "a varredura cobre o README inteiro (nao um prefixo truncado)" \
   "$(printf '%s' "$_sec_en" | wc -w)" "$_N_SECOES_README"
 

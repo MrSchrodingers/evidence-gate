@@ -996,7 +996,20 @@ Permanecem limitações relevantes:
 - não há estudo longitudinal de custo/latência que estabeleça benefício econômico;
 - não é alegada auditoria externa de autoria independente;
 - modelos-base relacionados podem compartilhar modos de falha correlacionados;
-- administradores do repositório podem alterar ou contornar política caso a governança permita.
+- administradores do repositório podem alterar ou contornar política caso a governança permita;
+- **o ledger de aprovação é gravável pelo ator governado.** Ele vive sob o `$HOME` do ator e o
+  hook roda com essa identidade. Anexar um registro `pass` com o snapshot atual, no formato exato
+  em disco, faz o portão sair 0 pelo cache sobre uma árvore que o analisador ainda reporta como
+  quebrada — reproduzido. O cache e a escotilha de escalada são, portanto, proteção contra *erro
+  e repetição acidental*, não contra adversário. Fechar isso exige separação de privilégio, não
+  correção pontual (achado G87);
+- **o linter é o único oráculo externo, e ele vê uma minoria dos arquivos.** Contado sobre
+  `/var/www`: 5.320 de 17.831 arquivos rastreados caem sob algum adaptador (29,8%). `.ts` (1.352),
+  `.tsx` (830) e, em outros pontos, `.rb` e `.vue` não têm adaptador nenhum. Tudo o que não é o
+  exit code do analisador é verificação sobre artefatos que o próprio ator governado escreve;
+- **turno sem adaptador aplicável não é julgado.** Desde a onda 26 ele é *registrado* como
+  `verdict: unverified`, com as extensões que ficaram de fora, de modo que "não verifiquei" deixou
+  de ser indistinguível de "não houve turno" — mas registrar não é julgar.
 
 O projeto deve, portanto, ser descrito como **harness experimental orientado por evidência**, e não como sistema de prova de correção de software.
 
@@ -1127,7 +1140,38 @@ desenho foi rejeitado por medicao: imita com permissao de filesystem uma primiti
 runtime ja implementa, e mistura politica organizacional com estado pessoal, memoria
 automatica, settings mutaveis, estado de sessao, caches e plugins num unico diretorio.
 
-### 16.3 Modo estrito de hooks
+### 16.3 Cobertura de subagentes: universal, não allowlist
+
+O contrato de retorno (`evidence/hooks/subagent-contract.sh`) exige que todo subagente feche com
+RESULTADO / EVIDENCIA / RISCOS / PROPAGACAO e uma âncora verificável, ou declare o token
+`NAO VERIFICADO`. Até a onda 25 ele era roteado por um `matcher` que listava os dez agentes
+definidos por este repositório — enquanto o kernel anunciava o contrato como universal.
+
+Medido no log de ativação permanente (`/var/log/tollens-activation.jsonl`): **170 de 491
+lançamentos de subagente registrados (34%) ficavam fora do contrato**. O que escapava não era
+marginal:
+
+| tipo de agente | lançamentos fora do contrato |
+|---|---|
+| `general-purpose` | 66 |
+| `workflow-subagent` | 54 |
+| `fork` | 19 |
+| `code-review` | 17 |
+| `Explore` | 5 |
+| `Plan` | 1 |
+
+O agente de propósito geral, o agente de workflow e o fork do próprio modelo entregavam relatório
+sem obrigação alguma de evidência — e qualquer agente novo, de plugin ou de workflow, nascia
+*fora* da regra por padrão. O matcher foi removido e a filtragem passou para dentro do hook, onde
+a exceção fica versionada com a razão: só `statusline-setup`, `output-style-setup` e eventos sem
+tipo são dispensados, porque não emitem afirmação técnica sobre artefato.
+
+Verificado contra o hook em vigor: `general-purpose`, `workflow-subagent`, `fork`, `Explore`,
+`Plan` e `code-review` devolvem `rc=2` para relatório sem os quatro blocos, e `rc=0` com eles. A
+válvula `NAO VERIFICADO` continua valendo — um agente que não conseguiu obter evidência declara
+isso em vez de inventá-la.
+
+### 16.4 Modo estrito de hooks
 
 `allowManagedHooksOnly` restringe a execucao de hooks a tabela managed. Antes da troca, cada
 hook disparava duas vezes - as tabelas managed e de usuario somavam. A precondicao foi
@@ -1140,7 +1184,7 @@ so no usuario (perder-se-iam): NENHUMA
 ```
 
 **Esta medicao e DATADA, e o proprio documento a invalida.** Ela foi tomada *antes* da correcao
-descrita em 16.4, que moveu a sonda de ativacao para a tabela managed. A tabela managed passou a
+descrita em 16.5, que moveu a sonda de ativacao para a tabela managed. A tabela managed passou a
 ter **nove** tipos de evento; o nono e `InstructionsLoaded`. A linha `so no usuario` continua
 verdadeira - nenhuma entrada de usuario se perdeu -, mas a simetria `8 = 8` deixou de valer, e
 publica-la como estado corrente seria o mesmo defeito que este documento registra como `G36`: um
@@ -1150,7 +1194,7 @@ O custo medido e real e nao fica escondido: tabelas de hook de plugin param de d
 plugins habilitados perderam hooks quando a flag foi ligada; o conjunto exato no momento da
 medicao nao foi registrado, entao essa contagem e `NAO VERIFICADO` em reinspecao.
 
-### 16.4 Evidencia de ativacao, e o defeito que ligar a imposicao criou
+### 16.5 Evidencia de ativacao, e o defeito que ligar a imposicao criou
 
 `InstructionsLoaded` e evento de runtime que dispara quando um documento de instrucao e
 carregado no contexto. Ele traz `file_path`, `memory_type` e `load_reason`. E o observavel
@@ -1168,7 +1212,7 @@ resistente a adulteracao quanto os artefatos que mede.
 {"ev":"SubagentStart","a":"investigador"}
 ```
 
-### 16.5 A semantica de ativacao difere por classe de artefato
+### 16.6 A semantica de ativacao difere por classe de artefato
 
 "Ativo" nao pode significar "foi invocado alguma vez". Cada classe admite um observavel
 diferente, e colapsa-los produz claim maior que a observacao:
@@ -1186,7 +1230,7 @@ pedindo explicitamente analise de grafo de dependencias registrou chamadas de fe
 nenhuma invocacao de skill, com controle positivo confirmando que o instrumento nao estava
 cego. Isso e propriedade de roteamento, e nenhuma mudanca de permissao a afeta.
 
-### 16.6 Um segundo runtime, com mecanismo separado
+### 16.7 Um segundo runtime, com mecanismo separado
 
 `managed-settings.json` governa o Claude Code e nao alcanca o Codex. O Codex implementa a
 propria camada managed, lida de `/etc/codex`, com `requirements.toml` carregando perfis de
@@ -1356,9 +1400,29 @@ As obras a seguir são aquelas de que o argumento deste documento de fato depend
 10. Liu, Y. et al. **"Do Not Mention This to the User": Detecting and Understanding Malicious Agent Skills in the Wild.** arXiv:2602.06547v4, acesso em 2026-08-12.  
     https://arxiv.org/abs/2602.06547v4
 
+11. Distefano, D.; Fähndrich, M.; Logozzo, F.; O'Hearn, P. W. **Scaling static analyses at Facebook.** Communications of the ACM 62(8):62–70, 2019. DOI 10.1145/3338112.
+   https://discovery.ucl.ac.uk/id/eprint/10084236/
+   *O único trabalho localizado que troca apenas o ESCOPO — mesma análise, mesma taxa de falso positivo — e mede o desfecho: fix rate de "near zero" para "over 70%" quando o Infer passou a rodar em tempo de diff. É o apoio externo à decisão deste repositório de julgar o delta em vez da árvore, e a chave de equivalência de bug dele convergiu de forma independente com a adotada aqui.*
+
+12. Sadowski, C.; van Gogh, J.; Jaspan, C.; Söderberg, E.; Winter, C. **Tricorder: Building a Program Analysis Ecosystem.** ICSE 2015, 598–608. DOI 10.1109/ICSE.2015.76.
+   https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/43322.pdf
+   *Declara a política de linhas alteradas em uma frase, e o rodapé 2 já documenta a exceção que este repositório redescobriu por medição e chamou de classe QUEBRA.*
+
+13. Bessey, A.; Block, K.; Chelf, B.; Chou, A.; Fulton, B.; Hallem, S.; Henri-Gros, C.; Kamsky, A.; McPeak, S.; Engler, D. **A few billion lines of code later.** Communications of the ACM 53(2):66–75, 2010. DOI 10.1145/1646353.1646374.
+   https://www.cs.columbia.edu/~junfeng/18sp-e6121/papers/coverity.pdf
+   *Fonte do mecanismo do "vicious cycle": baixa confiança faz achado verdadeiro ser rotulado falso, o que baixa mais a confiança. Citado como cautela de projeto, não como limiar calibrado — os 30% são julgamento de fornecedor, não medida.*
+
+14. Christakis, M.; Bird, C. **What developers want and need from program analysis: an empirical study.** ASE 2016, 332–343. DOI 10.1145/2970276.2970347.
+   https://mariachris.github.io/Pubs/ASE-2016.pdf
+   *A única distribuição quantitativa localizada de tolerância a falso positivo (n=375): 90% aceitam até 5%, apenas 24% toleram 20%. A irritação número um deles não é falso positivo — é "irrelevant checks turned on by default", que é exatamente a forma dos achados alheios ao turno.*
+
+15. Stechly, K.; Marquez, M.; Kambhampati, S. **GPT-4 Doesn't Know It's Wrong: An Analysis of Iterative Prompting for Reasoning Problems.** arXiv:2310.12397, FMDM@NeurIPS 2023.
+   https://arxiv.org/abs/2310.12397
+   *O achado que muda o cálculo de custo deste portão: no controle "evil", em que a crítica aponta um erro FALSO, o modelo aplica a "correção" em 94% dos casos — a mesma taxa do feedback legítimo, e os autores registram que ele "didn't discriminate between real errors or the evil case's false ones". Um falso positivo aqui não produz ruído; produz edição de código correto. Por isso toda correção de escopo da onda 25 carrega controles negativos explícitos.*
+
 ### 18.2 Corpus revisado
 
-A seção 16.1 lista o que a prosa deste documento de fato cita. A revisão bibliográfica feita na sessão que produziu a seção 15.6 cobriu um corpus substancialmente maior, a maior parte consultada para decidir se um achado candidato entrava na prosa acima, não para terminar citada nela. Listar esse corpus completo, e o veredito que cada entrada de fato recebeu, é o que torna esta seção o registro de uma revisão bibliográfica, e não uma lista de leitura curada: ela registra o que foi conferido, não só o que sobreviveu até o argumento. Todos os identificadores abaixo foram acessados em 2026-08-12; a versão é dada por linha, em vez de repetida por entrada.
+A seção 18.1 lista o que a prosa deste documento de fato cita. A revisão bibliográfica feita na sessão que produziu a seção 15.6 cobriu um corpus substancialmente maior, a maior parte consultada para decidir se um achado candidato entrava na prosa acima, não para terminar citada nela. Listar esse corpus completo, e o veredito que cada entrada de fato recebeu, é o que torna esta seção o registro de uma revisão bibliográfica, e não uma lista de leitura curada: ela registra o que foi conferido, não só o que sobreviveu até o argumento. Todos os identificadores abaixo foram acessados em 2026-08-12; a versão é dada por linha, em vez de repetida por entrada.
 
 Três classes de veredito aparecem, e não são intercambiáveis:
 

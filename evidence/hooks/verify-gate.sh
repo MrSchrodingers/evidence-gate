@@ -263,6 +263,62 @@ if [ "${#APLICAVEIS[@]}" -gt 0 ]; then
   EXTS_APLIC="$(for _a in "${APLICAVEIS[@]}"; do jq -r '.extensions[]? // empty' "$_a" 2>/dev/null; done | sort -u)"
 fi
 if [ "${#APLICAVEIS[@]}" -eq 0 ]; then
+  # ONDA 26: TURNO NAO JULGADO PRECISA DEIXAR RASTRO, e ate aqui nao deixava nenhum.
+  # MEDIDO: um turno que toca `.ts` sintaticamente quebrado, um `.sql` com `DROP TABLE users;` e
+  # um Dockerfile com `curl | sh` saia rc=0, com ZERO bytes de saida e ZERO linhas no ledger. O
+  # controle - o mesmo turno trocando so a extensao para `.py` - saia rc=2 com registro. Ou seja:
+  # o silencio era cobertura ausente, nao rig quebrado, e o instrumento discrimina.
+  #
+  # O PROBLEMA NAO E APROVAR, E NAO REGISTRAR. Um `pass` grava linha; um turno nao julgado nao
+  # gravava nada, e para qualquer auditoria posterior "nao verifiquei" ficava indistinguivel de
+  # "nao houve turno". Isso contradiz a doutrina G16 que este mesmo arquivo declara - zero
+  # unidades examinadas NAO e aprovacao -, e a contradizia justamente onde ela mais vale.
+  #
+  # O registro e MINIMO de proposito: `verdict: unverified` nunca e reutilizavel como cache, e
+  # por isso nao paga o custo do SNAPSHOT (que aqui seria desperdicio - a arvore nao sera
+  # julgada). A chave do ledger e o sha do caminho, que ja e barato.
+  # A2 DO REVISOR: sem `sha256sum` a chave sai VAZIA e o arquivo vira `.jsonl` - TODOS os
+  # repositorios da maquina fundidos num agregado so. `registra()` ja trata a ausencia como
+  # fail-closed (`a identidade do snapshot nao pode ser calculada`); este ramo era o primeiro
+  # ponto do arquivo em que ela NAO era. Sem a ferramenta, nao se grava: registro que mente sobre
+  # a qual repositorio pertence e pior que registro ausente.
+  command -v sha256sum >/dev/null 2>&1 || { [ -n "$EXECUTORES" ] && reporta "GATE - LACUNA DE COBERTURA: nenhum analisador seguro para o que mudou.$EXECUTORES
+Nenhuma verificacao rodou. Estado: NAO VERIFICADO / NOT_VERIFIED."; exit 0; }
+  _sha_ul(){ sha256sum 2>/dev/null | cut -c1-32; }
+  _LED_UL="${EVIDENCE_LEDGER_DIR:-$HOME/.claude/evidence}"
+  mkdir -p "$_LED_UL" 2>/dev/null || true
+  _EXTS_UL="$(printf '%s\n' "$CHANGED" | sed -n 's/.*\(\.[A-Za-z0-9_]\{1,8\}\)$/\1/p' | sort | uniq -c | sort -rn | head -5 | awk '{printf "%s:%s ", $2, $1}')"
+  # C2 DO REVISOR: as duas causas pedem remediacoes OPOSTAS - "nao existe adaptador para isto,
+  # escreva um" contra "o adaptador existe, aprove-o". A primeira versao fixava a mensagem em
+  # "nenhum adaptador aplicavel" e gravava isso mesmo quando havia adaptador exigindo aprovacao,
+  # enquanto o stderr dizia a verdade. O canal efemero acertava e o artefato duravel mentia.
+  if [ -n "$EXECUTORES" ]; then
+    _MOTIVO_UL="adaptador-exige-aprovacao"
+    _DET_UL="ha adaptador para o que mudou, mas ele declara executar codigo do repositorio e exige aprovacao explicita; extensoes: ${_EXTS_UL:-nenhuma}"
+  else
+    _MOTIVO_UL="sem-adaptador"
+    _DET_UL="nenhum adaptador aplicavel ao que mudou; extensoes: ${_EXTS_UL:-nenhuma}"
+  fi
+  # A3 DO REVISOR: a copia perdeu o fallback de `%N` que `registra()` tem documentado. Sob um
+  # `date` sem `%N` (BSD, busybox) o ledger recebia `ts` com `%N` LITERAL. Mesma razao, mesmo
+  # tratamento - a duplicacao ja divergiu duas vezes (ver tambem A2 abaixo).
+  _TS_UL="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ 2>/dev/null || true)"
+  case "$_TS_UL" in *%N*|"") _TS_UL="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;; esac
+  # C1 DO REVISOR: `snapshot:""` fazia TODO registro `unverified` de um repositorio cair no mesmo
+  # balde de `evidence/probes/ledger-atribuicao.py`, e corrompia tres medidas de uma vez. Medido
+  # pelo revisor sobre o mesmo ledger, antes e depois de 40 registros: `max_repeticoes` 2 -> 40
+  # (a coluna que produziu "336 paradas identicas" e sustenta os limiares de G77 e G81),
+  # `paradas: 43` com `fail+pass+gap = 3` (40 paradas somem da decomposicao sem aviso), e a
+  # fracao de reexecucoes redundantes 33,3% -> 2,3% SOBRE OS MESMOS FATOS.
+  # A chave passa a ser propria e distinta por conteudo do turno: `unverified:<sha de CHANGED>`.
+  # O prefixo mantem o registro fora do espaco de snapshots julgados - ele nunca pode casar o
+  # `grep -F` do cache de G1 - e o sufixo distingue turnos diferentes, que era o ponto.
+  _SNAP_UL="unverified:$(printf '%s' "$CHANGED" | _sha_ul)"
+  jq -cn --arg t "$_TS_UL" --arg s "$_SNAP_UL" --arg mo "$_MOTIVO_UL" \
+         --arg d "$_DET_UL" \
+         --arg n "${SESSAO:-}" \
+         '{ts:$t,snapshot:$s,verifiers:"",env:"",verdict:"unverified",motivo:$mo,detail:$d,session:$n,modos:{codes:{},classes:{}}}' \
+         >> "$_LED_UL/$(printf '%s' "$ROOT" | _sha_ul).jsonl" 2>/dev/null || true
   [ -n "$EXECUTORES" ] && reporta "GATE - LACUNA DE COBERTURA: nenhum analisador seguro para o que mudou.$EXECUTORES
 Nenhuma verificacao rodou. Estado: NAO VERIFICADO / NOT_VERIFIED.
 Adaptador que executa codigo do repositorio so roda sob aprovacao explicita."
@@ -520,13 +576,26 @@ registra(){  # $1=verdict $2=detalhe
   # formato anterior e o unico efeito e o colapso ocasional, que e fail-closed (barra mais).
   _TS="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ 2>/dev/null || true)"
   case "$_TS" in *%N*|"") _TS="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" ;; esac
+  # G43: `modos` e a assinatura agregada do que reprovou - {"F401":2,"F821":1} e
+  # {"higiene":2,"quebra":1}. Vazio quando nao houve reprovacao. Falha do `jq` aqui NAO pode
+  # derrubar o registro: o veredito importa mais que a estatistica, entao o fallback e `{}`.
+  _mj="$(printf '%s' "${MODOS_ACC:-}" | jq -cs 'add // [] | {codes: (map(.code) | group_by(.) | map({key: .[0], value: length}) | from_entries), classes: (map(.classe) | group_by(.) | map({key: .[0], value: length}) | from_entries)}' 2>/dev/null)"
+  case "$_mj" in '{'*'}') ;; *) _mj='{"codes":{},"classes":{}}' ;; esac
+  # A1 DO REVISOR: o `case` cobre falha do PROGRAMA jq e nao cobre falha do EXEC dele. Com `_mj`
+  # grande o `--argjson` estoura `E2BIG` e o `|| true` engole: medido com 2.000.038 bytes,
+  # `Argument list too long` e ZERO linhas gravadas - some o veredito, a sessao e a contagem de
+  # G77/G81. Nao chega la pelo ruff (codigos curtos e `--select` limitado); chega por um
+  # `verify.json` aprovado cujo `.detalhe[].code` seja texto livre, que e superficie de terceiro.
+  # Teto explicito, e ele DECLARA o truncamento em vez de calar.
+  if [ "${#_mj}" -gt 65536 ]; then _mj='{"codes":{},"classes":{},"truncado":true}'; fi
   jq -cn --arg t "$_TS" --arg s "$SNAPSHOT" \
          --arg v "$VERIFIERS" --arg e "$ENVD" --arg d "$1" --arg m "$2" --arg n "${SESSAO:-}" \
-         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m,session:$n}' >> "$LEDGER" 2>/dev/null || true
+         --argjson mo "$_mj" \
+         '{ts:$t,snapshot:$s,verifiers:$v,env:$e,verdict:$d,detail:$m,session:$n,modos:$mo}' >> "$LEDGER" 2>/dev/null || true
 }
 
 # --- G5: execucao por command + args, sem shell ---
-FALHAS=""; LACUNAS=""; SAIDA=""
+FALHAS=""; LACUNAS=""; SAIDA=""; MODOS_ACC=""
 for a in "${APLICAVEIS[@]}"; do
   ID="$(jq -r '.id // "?"' "$a")"; ECO="$(jq -r '.ecosystem // "?"' "$a")"
   CMD="$(jq -r '.exec.command' "$a")"
@@ -1124,6 +1193,30 @@ $O"; }
     SAIDA="$SAIDA
 --- $ID ($ECO) exit=$RC ---
 $(printf '%s\n' "$OUT" | tail -12)"
+    # RETER A ASSINATURA DO QUE REPROVOU. O portao produzia
+    # `{"detalhe":[{"code":"F401","classe":"higiene"},...]}` a cada reprovacao e guardava apenas
+    # `falharam: python-analyzer` - UMA causa distinta para 5495 registros no ledger de producao.
+    # A informacao era gerada e descartada no ponto de gravacao.
+    #
+    # ISTO NAO FECHA G43, e a primeira redacao deste comentario afirmava que sim. O revisor
+    # derrubou a alegacao e estava certo: G43 pede "uma taxonomia dos erros que uma SESSAO comete
+    # ao atender um pedido real - afirmar necessidade falsa, cortar a janela de uma medicao,
+    # contradizer o proprio diff, expandir escopo". `{"F401":2}` e taxonomia de REGRA DE LINT, nao
+    # de erro de sessao: "import nao usado" nao e "afirmar necessidade falsa". As 5495 reprovacoes
+    # medem que a ARVORE estava suja, nao COMO a sessao falhou ao atender o pedido. O que este
+    # bloco entrega e real e util, e responde outra pergunta - por isso G43 continua ABERTO e a
+    # retencao virou achado proprio. O analisador produz
+    # `{"detalhe":[{"code":"F401","classe":"higiene"},...]}` a cada reprovacao, e o ponto de
+    # gravacao guardava apenas `falharam: python-analyzer`: uma causa distinta para 5495 registros.
+    #
+    # O QUE ENTRA: `code` (identificador da regra) e `classe` (higiene/quebra), agregados por
+    # contagem. O QUE NAO ENTRA, e a omissao e deliberada: `path` e `message`. `path` revela a
+    # estrutura do projeto do operador e `message` carrega nomes de simbolos do codigo dele. O
+    # ledger e um registro de MODOS, nao uma copia do trabalho.
+    _m="$(printf '%s' "$OUT" | jq -c '[.detalhe[]? | {code, classe}]' 2>/dev/null)"
+    case "$_m" in
+      '['*']') MODOS_ACC="$MODOS_ACC$_m" ;;
+    esac
   fi
 done
 

@@ -1176,7 +1176,7 @@
       "mode": "verificacao-de-fonte",
       "class": "documentacao-exaustiva-sobre-o-assunto-errado",
       "defect": "40 ADRs documentam o aparato; nenhum documenta os modos de falha do TRABALHO",
-      "measured": "nao ha em 40 ADRs uma taxonomia dos erros que uma sessao comete ao atender um pedido real: afirmar necessidade falsa, cortar a janela de uma medicao, contradizer o proprio diff, expandir escopo. O repositorio ja registrava a forma geral (`consistencia interna NAO IMPLICA completude`, ADR 0036) e a aplicava ao corpus, nao a si",
+      "measured": "nao ha em 40 ADRs uma taxonomia dos erros que uma sessao comete ao atender um pedido real: afirmar necessidade falsa, cortar a janela de uma medicao, contradizer o proprio diff, expandir escopo. O repositorio ja registrava a forma geral (`consistencia interna NAO IMPLICA completude`, ADR 0036) e a aplicava ao corpus, nao a si ONDA 26: uma tentativa de fechar este achado foi RECUSADA. A retencao da assinatura de reprovacao (G97) responde outra pergunta - taxonomia de REGRA DE LINT, nao de erro de sessao. G43 continua aberto e o que ele pede continua sem mecanismo: os erros que ele nomeia (afirmar necessidade falsa, cortar a janela de uma medicao, contradizer o proprio diff, expandir escopo) nao sao observaveis por analisador estatico sobre a arvore.",
       "state": "open",
       "source_ref": "docs/adr/0041-o-kernel-guardava-a-classe-errada-de-erro.md",
       "open_note": "O fecho e um corpus de modos de falha de TRABALHO, alimentado por sessoes reais fora deste repositorio, e nao por auditoria do aparato. Sem isso, cada defeito operacional continua sendo descoberto pelo operador em vez de pelo instrumento. Nao construido aqui: exige coleta que este repositorio nao faz hoje"
@@ -1803,7 +1803,7 @@
       "review_round": "analista-otimalidade, perfil de custo do Stop-gate",
       "class": "o-portao-gastava-quase-tudo-em-escriturar-identidade-e-quase-nada-em-julgar",
       "defect": "90% do custo de uma parada, e 96% de uma parada com cache HIT, eram lacos de um processo por arquivo para calcular identidade; o analisador que de fato julga custava 1,0%",
-      "measured": "Perfil por etapa em /var/www/amaral-intern-hub (|CHANGED|=2717, 2693 untracked): bloco SNAPSHOT 17,6 s (55,3%) e laco de idade do G82 11,1 s (34,7%) num MISS de 31,9 s; `ruff` 0,32 s (1,0%). Num HIT, SNAPSHOT sozinho e 95,9% - e ele roda ANTES da consulta ao cache, entao era pago inteiro mesmo quando nada mudou (99,9% do custo de um HIT ocorre antes de o cache poder decidir). Causa: `$(sha256sum ... | cut ...)` por arquivo = 3 processos por entrada (~8150 por parada) e `stat -c %Y` por arquivo (~5400). CORRIGIDO com duas chamadas em lote em cada bloco. Equivalencia PROVADA antes de aplicar, nao assumida: digest identico em 5 repositorios (amaral, evidence-gate, worker-crawlers, piret, DEBTHUB-2.1) e particao identica (2691 PREEXISTENTE nos dois casos). Digest identico e o que preserva os 5000+ registros `pass` do ledger, chaveados por ele. Bloco SNAPSHOT isolado: 60,35 s -> 1,85 s. Ponta a ponta na versao otimizada: MISS 10,7 s, HIT 2,8 s. NAO VERIFICADO: comparacao ponta a ponta antes/depois sob a MESMA carga - o backup local se perdeu; o que esta medido e o efeito por bloco, com controle.",
+      "measured": "Perfil por etapa em /var/www/amaral-intern-hub (|CHANGED|=2717, 2693 untracked): bloco SNAPSHOT 17,6 s (55,3%) e laco de idade do G82 11,1 s (34,7%) num MISS de 31,9 s; `ruff` 0,32 s (1,0%). Num HIT, SNAPSHOT sozinho e 95,9% - e ele roda ANTES da consulta ao cache, entao era pago inteiro mesmo quando nada mudou (99,9% do custo de um HIT ocorre antes de o cache poder decidir). Causa: `$(sha256sum ... | cut ...)` por arquivo = 3 processos por entrada (~8150 por parada) e `stat -c %Y` por arquivo (~5400). CORRIGIDO com duas chamadas em lote em cada bloco. Equivalencia PROVADA antes de aplicar, nao assumida: digest identico em 5 repositorios (amaral, evidence-gate, worker-crawlers, piret, DEBTHUB-2.1) e particao identica (2691 PREEXISTENTE nos dois casos). Digest identico e o que preserva os 5000+ registros `pass` do ledger, chaveados por ele. Bloco SNAPSHOT isolado: 60,35 s -> 1,85 s. Ponta a ponta na versao otimizada: MISS 10,7 s, HIT 2,8 s. NAO VERIFICADO: comparacao ponta a ponta antes/depois sob a MESMA carga - o backup local se perdeu; o que esta medido e o efeito por bloco, com controle. MEDICAO EM PRODUCAO 2026-09-08, com o hook EM VIGOR (/opt/tollens/hooks/verify-gate.sh) sobre /var/www/amaral-intern-hub (2691 untracked, 2717 CHANGED): cache MISS 4,1 s e cache HIT 0,5 s. Referencia medida antes da onda no mesmo repositorio: MISS de 31,9 s a 112 s, HIT de 38,9 s a 64,6 s. O ganho maior esta no caminho quente, que e o caso comum: uma parada com cache valido custava dezenas de segundos e passou a custar meio segundo.",
       "source_ref": "evidence/hooks/verify-gate.sh",
       "resolution_ref": "evidence/hooks/verify-gate.sh"
     },
@@ -1858,6 +1858,84 @@
       "measured": "(a) REGISTRO: testei `humano`, `romano`, `germano` - a classe SUBSTRING - e nao testei a HOMOGRAFA, palavra inteira com uso formal. Medido: `valeu a pena` (preterito de VALER) e `beleza` como substantivo comum reprovavam relatorio tecnico correto. Corrigido: os dois so contam como VOCATIVO, seguidos de pontuacao terminal ou fim de linha. Verificado 7/7. (b) FONTE: `MARCAS_INTERNAS` continha `docs/` e `tests/` como substring livre COM PRECEDENCIA sobre URL, entao `https://ieeexplore.ieee.org/docs/1234` era classificada como interna e o validador acusava o autor de ter consultado apenas o proprio repositorio. Corrigido: a URL decide primeiro. Verificado 8/8. AS DUAS SAO A MESMA CLASSE DE DANO e ela e especifica deste harness: acusacao falsa contra um consumidor que, por evidence/literature/arxiv-2310.12397.yaml (controle 'evil'), aplica a correcao pedida em 94% dos casos MESMO QUANDO A ACUSACAO E FALSA - ou seja, falso positivo aqui nao produz ruido, produz edicao de texto e de codigo corretos.",
       "source_ref": "evidence/hooks/subagent-contract.sh",
       "resolution_ref": "evidence/validate-literature.py"
+    },
+    {
+      "finding_id": "G96",
+      "wave": 25,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "verificacao de ativacao pedida pelo operador, 2026-09-08",
+      "class": "ativacao-em-sessao-ja-aberta-era-suposicao-nao-medida",
+      "defect": "nao se sabia se uma sessao iniciada ANTES do deploy passa a operar sob a politica nova, ou segue com a anterior ate reiniciar",
+      "measured": "ATRIBUICAO: `sonda-de-sessao-viva` nomeia o agente `investigador`, e nao foi ele - a medicao saiu de aplicar `subagent-probe.sh`, instrumento ja existente, e ler o payload que ele guardava. E a SEGUNDA vez nesta onda que atribui procedencia a um agente que nao produziu o achado (a primeira foi G87); `tests/unit/governance-links.py` acusou as duas. MEDIDO NO PAYLOAD REAL que o runtime entrega, via `~/.claude/logs/subagent-probe.jsonl` (667 linhas, 547 SubagentStop). Sessao iniciada 2026-09-04 00:35:36; `~/.claude/settings.json` alterado 18:25:42 e `managed-settings.json` 18:28:57, ambos DEPOIS. Sonda: subagente `general-purpose` instruido a responder com UMA FRASE, sem blocos. Sequencia capturada: (1) SubagentStop com 'O hostname desta maquina e ...' - a frase curta; (2) SubagentStop com '**RESULTADO** ...' - reescrito com os quatro blocos; (3) perguntado se fora rejeitado, respondeu '(A) Tentei responder com uma frase curta e fui rejeitado por essa mensagem automatica' - e ESSA resposta foi rejeitada de novo e substituida pelo relatorio, razao de nunca ter chegado a sessao principal. CONCLUSAO: sessao ja aberta RELE o settings e opera sob a politica nova; o contrato alcanca `general-purpose`, que escapava do matcher antigo. DOIS INSTRUMENTOS FORAM DESCARTADOS NO CAMINHO, e os dois quase viraram conclusao errada: (i) contagem de SubagentStop em /var/log/tollens-activation.jsonl deu ZERO em 667 eventos - aquele log e do `activation-log.sh`, registrado APENAS em SubagentStart; reportar aquilo seria alarme falso de que o evento nao chega e a autoridade ampla e inerte; (ii) o `atime` do settings.json sugeria leitura recente, mas o filesystem usa `relatime` e a propria sessao leu o arquivo com `jq` varias vezes.",
+      "source_ref": "evidence/hooks/subagent-contract.sh",
+      "resolution_ref": "evidence/hooks/subagent-probe.sh"
+    },
+    {
+      "finding_id": "G97",
+      "wave": 26,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "onda 26, ao tentar fechar G43",
+      "class": "informacao-produzida-a-cada-reprovacao-e-descartada-no-ponto-de-gravacao",
+      "defect": "o portao produzia a assinatura de cada diagnostico que bloqueou e gravava no ledger apenas `falharam: <id>` - uma causa distinta para 5495 reprovacoes",
+      "measured": "MEDIDO no ledger de producao: 10.303 registros, 5.495 com `verdict: fail`, e UMA unica causa distinta no campo `detail`. O analisador emite `{\"detalhe\":[{\"code\":\"F401\",\"classe\":\"higiene\"},...]}` a cada reprovacao e a informacao morria no ponto de gravacao. Corrigido: `registra()` passou a emitir `modos:{codes:{...},classes:{...}}` agregado por contagem. PRIVACIDADE E PARTE DA CORRECAO, nao acessorio: entram `code` e `classe`; ficam de fora `path` (revela a estrutura do projeto do operador) e `message` (carrega nomes de simbolos do codigo dele). O ledger e registro de MODOS, nao copia do trabalho. Coberto por DE21 com dois pares de assercao de nao-vazamento e um controle de turno limpo.",
+      "source_ref": "evidence/hooks/verify-gate.sh",
+      "resolution_ref": "tests/unit/delta-e2e.sh"
+    },
+    {
+      "finding_id": "G98",
+      "wave": 26,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "onda 26, a partir da sabatina de fluxo",
+      "class": "turno-nao-julgado-era-indistinguivel-de-turno-inexistente",
+      "defect": "turno sem adaptador aplicavel saia `exit 0` sem gravar nada, entao `nao verifiquei` era indistinguivel de `nao houve turno`",
+      "measured": "REPRODUZIDO: turno tocando `.ts` sintaticamente quebrado, `.sql` com `DROP TABLE users;` e Dockerfile com `curl | sh` saia rc=0, ZERO bytes de saida e ZERO linhas no ledger. CONTROLE, mesmo turno trocando so a extensao para `.py`: rc=2, 688 bytes, 1 linha - o instrumento discrimina, e o silencio era cobertura ausente, nao rig quebrado. O problema nunca foi APROVAR: foi NAO REGISTRAR, contra a doutrina G16 que o proprio arquivo declara. Passou a gravar `verdict: unverified` com as extensoes que ficaram fora, o que converte o buraco de cobertura em dado mensuravel. Coberto por DE22.",
+      "source_ref": "evidence/hooks/verify-gate.sh",
+      "resolution_ref": "tests/unit/delta-e2e.sh"
+    },
+    {
+      "finding_id": "G99",
+      "wave": 26,
+      "state": "resolved",
+      "mode": "leitura-estrutural",
+      "found_by": "revisor-codigo",
+      "review_round": "revisor-codigo sobre o diff da onda 26",
+      "class": "registro-novo-corrompia-o-instrumento-que-mede-o-proprio-portao",
+      "defect": "o registro `unverified` gravava `snapshot:\"\"` e colapsava tres medidas de `ledger-atribuicao.py`; e gravava causa falsa quando havia adaptador exigindo aprovacao",
+      "measured": "C1: medido pelo revisor sobre o mesmo ledger, antes e depois de 40 registros `unverified`: `max_repeticoes` 2 -> 40 sobre arvores DIFERENTES (e essa coluna produziu o numero '336 paradas identicas' citado no proprio hook, que sustenta os limiares de G77 e G81); `paradas: 43` impresso com `fail+pass+gap = 3`, com 40 paradas sumindo da decomposicao sem aviso; fracao de reexecucoes redundantes 33,3% -> 2,3% SOBRE OS MESMOS FATOS. Corrigido com chave propria `unverified:<sha de CHANGED>`, prefixada para nunca casar o `grep -F` do cache de G1. C2: o `detail` era fixo em 'nenhum adaptador aplicavel' e era gravado ANTES do ramo que trata 'adaptador exige aprovacao' - o stderr dizia a verdade e o artefato duravel dizia o contrario, e as duas causas pedem remediacoes OPOSTAS. Corrigido com campo `motivo`. A1: `--argjson` com payload grande estoura E2BIG e o `|| true` engolia - medido com 2.000.038 bytes, ZERO linhas gravadas, sumindo veredito, sessao e contagem de G77/G81. Teto de 64 KB que DECLARA o truncamento. A2: sem `sha256sum` a chave saia vazia e TODOS os repositorios caiam em `.jsonl` - era o primeiro ponto do arquivo em que a ausencia da ferramenta nao era fail-closed. A3: a copia perdeu o fallback de `%N` e gravava `%N` literal no `ts`.",
+      "source_ref": "evidence/hooks/verify-gate.sh",
+      "resolution_ref": "evidence/hooks/verify-gate.sh"
+    },
+    {
+      "finding_id": "G100",
+      "wave": 26,
+      "state": "resolved",
+      "mode": "leitura-estrutural",
+      "found_by": "revisor-codigo",
+      "review_round": "revisor-codigo sobre o diff da onda 26",
+      "class": "onda-alegou-fechar-achado-que-responde-outra-pergunta",
+      "defect": "a onda 26 afirmou, no proprio codigo, que fechava G43 - e G43 pede taxonomia de erros de SESSAO, nao de regras de lint",
+      "measured": "O comentario introduzido dizia que a premissa de G43 estava errada e que a retencao a fechava. G43 pede, verbatim: 'uma taxonomia dos erros que uma SESSAO comete ao atender um pedido real: afirmar necessidade falsa, cortar a janela de uma medicao, contradizer o proprio diff, expandir escopo'. `{\"F401\":2,\"F821\":1}` e taxonomia de REGRA DE LINT: 'import nao usado' nao e 'afirmar necessidade falsa'. As 5495 reprovacoes medem que a ARVORE estava suja, nao COMO a sessao falhou ao atender o pedido. O que a onda entrega e real e util e responde OUTRA pergunta. Corrigido antes do commit: G43 permanece `open`, a retencao virou achado proprio (G97), e o comentario no codigo passou a declarar o limite em vez de negá-lo. Sem essa correcao a onda teria repetido o defeito que o commit c59e9dd deste repositorio nomeia - 'o achado fechado no codigo e aberto no registro'.",
+      "source_ref": "evidence/hooks/verify-gate.sh",
+      "resolution_ref": "evidence/corpus/agente-x-defeito.json"
+    },
+    {
+      "finding_id": "G101",
+      "wave": 26,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "onda 26, execucao dos mutantes novos",
+      "class": "mutante-sobrevivente-por-inercia-parece-cobertura",
+      "defect": "o mutante de privacidade mutava um ponto INERTE para o resultado e sobreviveu, dando aparencia de garantia testada onde o teste nao alcancava",
+      "measured": "MVG17 trocava a projecao `{code, classe}` por `{code, classe, path}` e SOBREVIVEU. A causa nao e lacuna do teste: o agregador extrai apenas `.code` e `.classe`, entao um campo a mais na projecao nunca alcanca o ledger - a privacidade tem DUAS camadas e derruba-la exige mutar as duas. A propriedade do desenho e boa; o mutante e que nao media nada. E mutante inerte e PIOR que mutante ausente, porque parece cobertura: se tivesse morrido por acaso, teria registrado como protegida uma garantia que aquele ponto nao testava. Reescrito para vazar por ponto unico com o defeito realista - copiar o campo errado para dentro de `code` (`{code: .path, classe}`), que produz `{\"codes\":{\"mau.py\":1}}` e e morto por DE21. Ataca o que a revisao registrou em A5: o agregador confia no NOME do campo, nao no conteudo.",
+      "source_ref": "tests/mutation/verify-gate-delta.sh",
+      "resolution_ref": "tests/mutation/verify-gate-delta.sh"
     }
   ],
   "reading": [
@@ -1871,15 +1949,15 @@
   "completeness": "`tests/unit/governance-links.py` confere que todo identificador citado com marcador estruturado nos ADRs (`**C1 -`, `**F2 -`, `**A4 -`) aparece como `finding_id` aqui. Antes dessa checagem o portao so recontava as linhas PRESENTES - consistencia interna, nunca completude do universo.",
   "derived": {
     "_comment": "BLOCO DERIVADO - nao editar a mao. `evidence/corpus/render.py` o recalcula e `tests/unit/governance-links.py` reprova se divergir dos findings. Existe porque o cabecalho deste arquivo declarava 'ondas 11 a 15' e ADR 0031..0035 enquanto os proprios dados ja tinham onda 17 e ADR 0036 - metadado de frame escrito a mao envelhece contra o dado que ele descreve.",
-    "n_findings": 140,
+    "n_findings": 146,
     "wave_min": 11,
-    "wave_max": 25,
+    "wave_max": 26,
     "counts_by_mode": {
-      "aplicacao-de-instrumento": 25,
+      "aplicacao-de-instrumento": 29,
       "auditoria-externa": 45,
       "execucao-em-ambiente-alheio": 3,
       "execucao-hostil": 1,
-      "leitura-estrutural": 24,
+      "leitura-estrutural": 26,
       "remedicao": 25,
       "sonda-de-sessao-viva": 2,
       "verificacao-de-fonte": 15
@@ -1902,6 +1980,7 @@
       "evidence/observations/2026-09-02-o-numero-que-motivou-a-onda-25.md",
       "evidence/validate-literature.py",
       "execution/config/CLAUDE.md",
+      "tests/mutation/verify-gate-delta.sh",
       "tests/unit/contrato-de-instalador.sh"
     ],
     "open_findings": [
@@ -1933,7 +2012,7 @@
     ],
     "by_state": {
       "open": 25,
-      "resolved": 115
+      "resolved": 121
     }
   },
   "historical_states": [
