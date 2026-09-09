@@ -27,7 +27,7 @@ cd "$(dirname "$0")/../.." || exit 1
 . tests/lib/lock.sh
 . tests/lib/arena.sh
 
-P=0; F=0; EXPECTED_MUTANTS=29
+P=0; F=0; EXPECTED_MUTANTS=33
 REG="orchestration/registry.json"
 LOCK="install/manifest.lock"
 POR="tests/unit/capability-conformance.py"
@@ -70,7 +70,7 @@ mutante MCAP2 "dossie cobrindo 2 dos 7 requisitos reprova" 1 \
 import os
 os.makedirs("evidence/skills",exist_ok=True)
 open("evidence/skills/graphify.json","w").write(json.dumps({"paired_evaluation":{"ok":1},"cost_measurement":{"ok":1}}))
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 
 # CONTROLE POSITIVO, e ele e o que impede o portao de ser "reprova tudo". Sem este caso,
 # "nunca aprova" seria indistinguivel de "verifica corretamente".
@@ -99,8 +99,13 @@ import os, json as _j
 reqs=_j.load(open("orchestration/skill-policy.json"))["lifecycle"]["promotion_requires"]
 os.makedirs("evidence/skills",exist_ok=True)
 def dossie(extra=None, fonte="execution/skills/graphify"):
+    # ONDA 28. `evaluated_with` casa com `orchestration/environment.json:supported` (runtime
+    # claude_code, runtime_version 2.1.226, model opus-5) - o mesmo par ja declarado em
+    # `orchestration/registry.json:capabilities.graphify.exposure`. `skill_version` e exigido
+    # (AV_REQUIRED_KEYS) mas nao comparado contra envelope nenhum.
     d={k:{"ok":True} for k in reqs}
-    d["evaluated_with"]={"runtime":{"claude_code":"2.1.0"},"model":{"name":"opus-5"},
+    d["evaluated_with"]={"runtime":"claude_code","runtime_version":"2.1.226","model":"opus-5",
+                         "skill_version":"1.0.0",
                          "artifact_digest":dig(fonte),"policy_digest":digpol()}
     if extra is not None: d["evaluated_with"].update(extra)
     open("evidence/skills/graphify.json","w").write(_j.dumps(d))
@@ -114,7 +119,7 @@ def dossie(extra=None, fonte="execution/skills/graphify"):
 mutante MCAP3 "dossie 7/7 com evaluated_with casado APROVA (controle positivo)" 0 \
   "$_PY$_DIG"'
 dossie()
-c["graphify"].update(state="promoted",exposure={"level":"auto"},evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",exposure={"level":"auto"},evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 
 mutante MCAP4 "dossie com os 7 nomes e valores VAZIOS reprova" 1 \
   "$_PY"'
@@ -122,7 +127,7 @@ import os
 reqs=json.load(open("orchestration/skill-policy.json"))["lifecycle"]["promotion_requires"]
 os.makedirs("evidence/skills",exist_ok=True)
 open("evidence/skills/graphify.json","w").write(json.dumps({k:None for k in reqs}))
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 
 echo "== mutantes da divida de avaliacao =="
 mutante MCAP5 "capability nova em candidate estoura o teto" 1 \
@@ -154,10 +159,18 @@ import os
 reqs=json.load(open("orchestration/skill-policy.json"))["lifecycle"]["promotion_requires"]
 os.makedirs("evidence/skills",exist_ok=True)
 open("evidence/skills/graphify.json","w").write(json.dumps({k:{"ok":True} for k in reqs}))
-c["graphify"]["evidence"]={"dossier":"evidence/skills/graphify.json","status":"valid"}
+c["graphify"]["evidence"]={"dossier":"evidence/skills/graphify.json","status":"fresh"}
 os.makedirs("execution/skills/nova",exist_ok=True)
 open("execution/skills/nova/SKILL.md","w").write("---\nname: nova\ndescription: x\n---\n")
 c["nova"]={"kind":"skill","source":"execution/skills/nova","state":"candidate","installed":False,"activation":"contextual","evidence":{"dossier":None,"status":"absent"}}'"$_SAVE"
+
+# LIMPEZA IMEDIATA, nao so no fim do arnes (linha final `rm -rf ...`). MCAP10/MCAP11 criam
+# `execution/skills/nova/` no DISCO; `_rst` restaura so `$REG`/`$LOCK`, entao o diretorio
+# sobrevivia ate a limpeza final e ficava FORA do registry a partir daqui - CC3 (bijecao
+# disco-registry) passava a reprovar TODO mutante seguinte, mascarado sempre que o mutante
+# seguinte ja esperava exit=1 por outro motivo. Achado ao introduzir MCAP32 (want=0, primeiro
+# `want=0` depois de MCAP10/11 nesta ordem): sobrevivia por reprovar quando devia aprovar.
+rm -rf execution/skills/nova 2>/dev/null
 
 echo "== mutantes do par registry x manifesto =="
 mutante MCAP8 "manifesto sem uma skill do registry reprova" 1 \
@@ -199,17 +212,17 @@ mutante MCAP18 "dossie valido, mas o ARTEFATO mudou depois: STALE, reprova" 1 \
   "$_PY$_DIG"'
 dossie()
 open("execution/skills/graphify/SKILL.md","a").write("\n<!-- mudanca posterior a avaliacao -->\n")
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 mutante MCAP19 "dossie 7/7 SEM evaluated_with: nao ha como saber se ainda vale, reprova" 1 \
   "$_PY$_DIG"'
 import json as _j2
 d={k:{"ok":True} for k in reqs}
 open("evidence/skills/graphify.json","w").write(_j2.dumps(d))
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 mutante MCAP20 "dossie avaliado sob OUTRA policy: STALE, reprova" 1 \
   "$_PY$_DIG"'
 dossie({"policy_digest":"0"*64})
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
 
 echo "== onda 15, segunda rodada: as regras que a revisao independente exigiu =="
 # C1 - o `kind` e a chave de entrada na tabela de obrigacoes e mora no objeto governado.
@@ -301,6 +314,35 @@ if [ "$_got" -eq 1 ]; then echo "  MORTO MCAP29 - registry correto no instante d
 else echo "  SOBREVIVEU MCAP29 - registry correto no instante da escrita, fonte muda depois (exit=$_got, esperado=1)"; F=$((F+1)); fi
 mv -f "$REG.bak" "$REG"
 mv -f "$_CLAUDE_MD.bak" "$_CLAUDE_MD"
+
+echo "== onda 28 (ADR 0046): evidencia envelhece quando runtime ou modelo muda =="
+# MCAP30 e O F2P DESTA ONDA, reproduzido antes do fix: dossie 7/7 com digests casados mas
+# runtime/modelo declarados FORA de qualquer conjunto suportado passava (exit 0). O portao
+# corrigido confere `evaluated_with` contra `orchestration/environment.json:supported`.
+mutante MCAP30 "dossie 7/7 com runtime/modelo fora do envelope de ambiente: STALE, reprova" 1 \
+  "$_PY$_DIG"'
+dossie({"runtime_version":"0.0.1-inexistente","model":"modelo-que-nunca-existiu"})
+c["graphify"].update(state="promoted",exposure={"level":"auto"},evidence={"dossier":"evidence/skills/graphify.json","status":"fresh"})'"$_SAVE"
+
+mutante MCAP31 "evidence.status fora do vocabulario fechado reprova" 1 \
+  "$_PY"'c["graphify"]["evidence"]["status"]="banana"'"$_SAVE"
+
+# MCAP32/MCAP33 SAO UM PAR, e o par e o que discrimina. MCAP32 e o CONTROLE POSITIVO do
+# criterio de aceite "stale nao implica deprecated": a MESMA capability, candidate+installed,
+# com evidencia que deriva `stale` (runtime fora do envelope) permanece candidate+installed e o
+# portao continua verde - stale e propriedade da PROVA, nao do lifecycle. MCAP33 muda so o
+# `state` para `deprecated` e reprova pela MESMA razao que CC3 ja reprova hoje (instalacao
+# indevida); sem este segundo mutante, MCAP32 nao provaria "stale continua instalada" - provaria
+# apenas "o portao nao olha instalacao".
+mutante MCAP32 "candidate+installed com evidence.status=stale permanece verde (controle positivo: stale != deprecated)" 0 \
+  "$_PY$_DIG"'
+dossie({"runtime_version":"0.0.1-inexistente"})
+c["graphify"]["evidence"]={"dossier":"evidence/skills/graphify.json","status":"stale"}'"$_SAVE"
+
+mutante MCAP33 "a MESMA capability, deprecated+installed, reprova (controle negativo: CC3 ja pega)" 1 \
+  "$_PY$_DIG"'
+dossie({"runtime_version":"0.0.1-inexistente"})
+c["graphify"].update(state="deprecated",evidence={"dossier":"evidence/skills/graphify.json","status":"stale"})'"$_SAVE"
 
 rm -rf evidence/skills execution/skills/nova tests/unit/nao-enumerada.sh 2>/dev/null
 echo

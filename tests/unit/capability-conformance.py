@@ -181,7 +181,7 @@ def _le_do_git(ref: str):
     # do blob-base e o digest do artefato vinha do HEAD, entao qualquer PR que tocasse o
     # componente invalidava os dossies DA BASE, inflando `d_base` e AFROUXANDO a monotonicidade.
     # Fail-open, na direcao exata que a onda 14 existiu para fechar.
-    leitor.ref = ref
+    leitor.ref = ref  # type: ignore[attr-defined]  # atributo dinamico intencional: a ref viaja com a funcao (ver comentario acima)
     return leitor
 
 
@@ -581,7 +581,7 @@ def _pagas(cap: dict, leitor) -> set:
             _ger = leitor("scripts/status.sh") or ""
             enumerada = bool(ref) and (
                 ref in _ger
-                or (ref.startswith("tests/mutation/") and ref.endswith(".sh")
+                or (ref.startswith("tests/mutation/") and ref.endswith(".sh")  # type: ignore[union-attr]  # guardado por bool(ref) na linha acima
                     and "tests/mutation/*.sh" in _ger))
             if texto is not None and fonte and fonte in texto and enumerada:
                 out.add(d)
@@ -1138,6 +1138,69 @@ check(bool(_falhas_negativo),
 check(not _falhas_positivo,
       "controle positivo: fragmento sintetico conforme (candidate+manual) nao e acusado"
       + ("" if not _falhas_positivo else f" - {_falhas_positivo}"))
+
+# ---------------------------------------------------------------------------------------
+print("== CC9. evidencia envelhece quando runtime, modelo, artefato ou policy mudam (ADR 0046) ==")
+# `evidence.status` (declarado no registry) e o status DERIVADO por `_status_derivado` (digest +
+# ambiente + supersessao) sao duas coisas diferentes que tem de COINCIDIR, no mesmo padrao ja
+# aplicado a `measured_size_bytes` em CC7: declarar um valor que a derivacao nao sustenta e a
+# mesma classe de defeito, so que no campo `status` em vez de num inteiro.
+check(len(EVSTATUS_VOCAB) >= 2,
+      f"a policy declara vocabulario fechado de evidence.status (medido: {EVSTATUS_VOCAB})")
+
+_status_fora_vocab = [f"{n}={ (cap.get('evidence') or {}).get('status')!r}"
+                      for n, cap in sorted(caps.items())
+                      if (cap.get("evidence") or {}).get("status") not in EVSTATUS_VOCAB]
+check(bool(EVSTATUS_VOCAB) and not _status_fora_vocab,
+      f"todo evidence.status pertence ao vocabulario fechado {EVSTATUS_VOCAB}"
+      + ("" if not _status_fora_vocab else f" - fora do vocabulario: {_status_fora_vocab}"))
+
+# DECLARADO == DERIVADO, para toda capability - nao so para as promovidas que CC2 ja julga.
+# Uma capability em `candidate` que declara `fresh` sem que a mecanica sustente e a MESMA
+# forma de claim falsa que CC4 ja reprova para `dimensions..status: paid` sem lastro.
+_divergentes_status = []
+_relatorio_invalidated_by: dict[str, list[str]] = {}
+for _n, _cap in sorted(caps.items()):
+    _declarado = (_cap.get("evidence") or {}).get("status")
+    _derivado, _motivos = _status_derivado(_cap, _le_do_disco)
+    _relatorio_invalidated_by[_n] = _motivos
+    if _declarado != _derivado:
+        _divergentes_status.append(
+            f"{_n}: declarado={_declarado!r} derivado={_derivado!r}"
+            + (f" ({'; '.join(_motivos)})" if _motivos else ""))
+check(not _divergentes_status,
+      "evidence.status declarado bate com o status derivado mecanicamente (digest + ambiente + "
+      "supersessao)"
+      + ("" if not _divergentes_status else f" - divergentes: {_divergentes_status}"))
+
+# `invalidated_by` DERIVADO, IMPRESSO por capability - nunca guardado (mesmo principio de CC7:
+# numero de aparencia medida e derivado, nao guardado).
+for _n in sorted(_relatorio_invalidated_by):
+    if _relatorio_invalidated_by[_n]:
+        print(f"        invalidated_by[{_n}] = {_relatorio_invalidated_by[_n]}")
+
+# CONTROLE: upstream_supersession ABERTO e detectado; RESOLVIDO nao bloqueia. Funcao PURA sobre
+# fragmento sintetico, no padrao de CC7/CC8 - a populacao real do registry nao declara nenhuma
+# supersessao hoje, e sem fixture as duas branches nunca seriam exercitadas.
+_sup_aberta = {"upstream_supersession": {"by": "runtime nativo absorveu a funcao", "resolved": False}}
+_sup_resolvida = {"upstream_supersession": {"by": "runtime nativo absorveu a funcao", "resolved": True}}
+_sup_ausente: dict = {}
+check(_upstream_supersession_aberto(_sup_aberta) is not None,
+      "controle positivo: upstream_supersession aberto e detectado")
+check(_upstream_supersession_aberto(_sup_resolvida) is None,
+      "controle: upstream_supersession com resolved=true nao bloqueia frescor")
+check(_upstream_supersession_aberto(_sup_ausente) is None,
+      "controle: ausencia de upstream_supersession nao bloqueia frescor (campo e OPCIONAL)")
+
+# upstream_supersession e gatilho de REAVALIACAO, nunca de depreciacao: a mesma funcao que
+# calcula o motivo NUNCA le nem escreve `state`/`installed` - a prova e que o fragmento
+# sintetico, com `state` presente, sai do calculo intocado.
+_frag_estado = {"kind": "skill", "state": "promoted", "installed": True,
+               "upstream_supersession": {"by": "x", "resolved": False}}
+_antes_estado = (_frag_estado.get("state"), _frag_estado.get("installed"))
+_upstream_supersession_aberto(_frag_estado)
+check((_frag_estado.get("state"), _frag_estado.get("installed")) == _antes_estado,
+      "controle: avaliar upstream_supersession nao move `state` nem `installed` da capability")
 
 failed = sum(not ok for ok, _ in checks)
 print(f"\nTOTAL={len(checks)} FAIL={failed}")
