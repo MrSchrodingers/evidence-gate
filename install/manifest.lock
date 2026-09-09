@@ -32,9 +32,9 @@ skill	execution/skills/design-system-proposal	skills/design-system-proposal	93a5
 skill	execution/skills/forge	skills/forge	34ed31b2096993416a317a7cf4008d0152422104f953c12f7211d580f23962a8
 skill	execution/skills/graphify	skills/graphify	4e2ba651342dbb5a3dcb3b440f2ea64db1c3ecd5e4636840987d09a4b2344bf3
 skill	execution/skills/grill-me	skills/grill-me	6ac5c0ed3d81170cade87b9c6ac74bb1d0dd1940c03f8ea19eb64b18c2b7540c
-skill	execution/skills/prd-to-issues	skills/prd-to-issues	6752322d9f817708b6983e2a5cce4f9031a7443bc49565ed3ee978e6cd48a431
-skill	execution/skills/prd-to-plan	skills/prd-to-plan	5d4e4011765284398acd75f9031dcabbed774807a808a379b65f9e92c3a56e7d
-skill	execution/skills/write-a-prd	skills/write-a-prd	14e0c9418b57ffeac3db77314679cad0bb7c299a35ae2049b7d1c2fc16e319ac
+skill	execution/skills/prd-to-issues	skills/prd-to-issues	10c4166e77aff5529d034589d05eb2b9ee06c40f44e6a4abfc0e46126b69739c
+skill	execution/skills/prd-to-plan	skills/prd-to-plan	094df0b35844f93cf6d908bc2e371dfa4df040db3a18759d75a2e2398668c90b
+skill	execution/skills/write-a-prd	skills/write-a-prd	a688ccc9b641f0576b12f7b50589c9c769d5bbbc6e674df4aa1eb1b1c27cc8a3
 adapter	execution/adapters/code/dotnet.json	tollens/adapters/code/dotnet.json	de8ce4993f738dd281683bf3297cb986bcc64b14dc4f968bb7fde75f94c1261a
 adapter	execution/adapters/code/go.json	tollens/adapters/code/go.json	47162accddf5187301305bea16abe82dfbbd5f5ccca85d83ba4bf575d79e6b34
 adapter	execution/adapters/code/java.json	tollens/adapters/code/java.json	c20e5d9ab26f6c95e330f136f53e6a764618362329166a2c8ee8240d9ad308fd

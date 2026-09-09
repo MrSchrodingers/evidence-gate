@@ -66,7 +66,11 @@ chk "policy declara vocabulario de efeito nao vazio" \
 REMOTE_WRITE_PATTERNS=(
   'gh\s+issue\s+create'
   'gh\s+pr\s+create'
-  'gh\s+api'
+  # `gh api` sozinho casa LEITURA tambem (`gh api repos/../contents/.. --jq .content`,
+  # uso real em design-system-proposal/references/repo-study.md:22). Exigir o verbo de
+  # escrita explicito. Isto REDUZ deteccao, e a reducao e segura porque este detector
+  # nunca afirma pureza: o ramo negativo imprime `ok` narrativo, nao assercao.
+  'gh\s+api\s+[^|]*(-X|--method)\s*(POST|PUT|PATCH|DELETE)'
   'git\s+push'
   'curl\s+-X\s*(POST|PUT|PATCH|DELETE)'
   '\b(http|httpx)\.(post|put|patch|delete)\('
@@ -139,9 +143,19 @@ for d in execution/skills/*/; do
   # nunca uma assercao de pureza. A leitura correta do criterio da issue #50 e "efeito declarado
   # ABAIXO de remote-write", nao "declarada pure": `gh issue create` numa skill `local-write` e
   # igualmente uma escrita remota que o efeito local declarado nao cobre.
+  # F2 (refutador da onda 28a): a varredura lia SO `SKILL.md`, e o corpo de uma skill nao e um
+  # arquivo - e o diretorio. Medido: `execution/skills/design-system-proposal/references/
+  # repo-study.md:22` carrega `gh api repos/<org>/<repo>/contents/` numa skill `contextual` +
+  # `local-write`, e o portao imprimia "sem padrao de escrita remota no corpo". O ADR 0045 desta
+  # mesma onda registra que `references/` foi exatamente onde o defeito sobreviveu duas vezes, e
+  # `tests/unit/methodology.py:223` ja usa `rglob("*.md")` por esse motivo. Varredura recursiva
+  # alinha os dois oraculos em vez de deixa-los discordar sobre a mesma classe.
   achados=()
   for pat in "${REMOTE_WRITE_PATTERNS[@]}"; do
-    grep -qEi "$pat" "$d/SKILL.md" 2>/dev/null && achados+=("$pat")
+    if find "$d" -type f -name '*.md' -print0 2>/dev/null \
+       | xargs -0 -r grep -lEi "$pat" 2>/dev/null | grep -q .; then
+      achados+=("$pat")
+    fi
   done
   if [ "${#achados[@]}" -gt 0 ]; then
     inconsistencia_ok="$([ "$efeito" = remote-write ] || [ "$efeito" = destructive ] && echo sim || echo nao)"
