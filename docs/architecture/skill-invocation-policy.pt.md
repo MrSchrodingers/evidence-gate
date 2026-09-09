@@ -59,6 +59,47 @@ passam a concordar entre si. Isto **não mede E_A**: não observa se o runtime d
 deixou de rotear uma Skill. Ler isto como prova de ativação repetiria o defeito do ADR 0036
 (G6a) — representação do mecanismo não é o fenômeno.
 
+### G106 (issue #50) — efeito é dimensão independente de ativação, e passa a ser declarada
+
+A correção do G102 fechou `activation.registry != frontmatter`, mas não dizia nada sobre O QUE
+uma Skill faz. `write-a-prd` publicava `gh issue create` no corpo — escrita remota — enquanto
+`activation.model_invocable_exceptions` a justificava com a frase "efeito local e reversível",
+nunca conferida por executável algum. A mesma configuração (activation consistente,
+`model_invocable_exceptions` com `reason` não vazio) era satisfeita por qualquer par
+"contextual + qualquer corpo", inclusive um com `gh issue create`: `PolicyDeclared` sem
+`PolicyEnforced`, agora na dimensão de EFEITO em vez da de ativação.
+
+A correção:
+
+1. `skill-policy.json` ganha um bloco `effects` — sibling de `activation`, porque é uma
+   dimensão diferente — com `vocabulary` (enum fechado `["pure", "local-write", "remote-write",
+   "destructive"]`) e `by_skill` (mapa skill → efeito, uma entrada por diretório de
+   `execution/skills/`).
+2. A invariante nova: `effect in {remote-write, destructive} => activation != contextual`,
+   verificada com o lado de ativação vindo do FRONTMATTER em disco (não da policy) — dois
+   arquivos independentes, o mesmo padrão que a asserção de G102 já usa.
+3. Detectores sintáticos (`gh issue create`, `gh pr create`, `gh api`, `git push`, `curl -X
+   POST|PUT|PATCH|DELETE`, `http(x).post|put|patch|delete(`, `aws s3 cp`) entram como CONTROLE
+   DE INCONSISTÊNCIA, nunca como definição de classe: casar um padrão com efeito declarado
+   ABAIXO de `remote-write` reprova. A leitura precisa do critério é "abaixo de `remote-write`",
+   não "declarada `pure`" — `gh issue create` numa skill `local-write` é igualmente uma escrita
+   remota que o efeito local não cobre.
+4. A ASSIMETRIA, que tem de sobreviver a qualquer extensão futura: a AUSÊNCIA de qualquer
+   padrão sintático NUNCA promove uma skill a `pure`. Ausência de string é ausência de
+   evidência sintática, não evidência de ausência de efeito. Só a declaração humana em
+   `by_skill` define a classe; o detector só pode agravá-la.
+5. `write-a-prd` foi corrigida pela via preferida pela issue: a redação do PRD passou a ser
+   gravada localmente (`./prds/<slug>.md`, espelhando `/prd-to-plan`), e a publicação remota
+   (`gh issue create`) foi movida para `/prd-to-issues` (que já era manual-only). `write-a-prd`
+   permanece `contextual` — deixou de ser falso porque o efeito deixou de ser remoto, não porque
+   a checagem foi enfraquecida.
+
+LIMITE DECLARADO, e é o que a issue #50 já nomeava: um mutante que só more por causa do NOME
+("write-a-prd") ou do LITERAL ("gh issue create") provaria o repro, não o predicado. O arnês de
+mutação registra uma skill fictícia com outro nome e outra forma de escrita remota
+(`publicar-relatorio`, `curl -X POST`) consistente em toda outra dimensão, e confere que a
+morte ocorre pela MENSAGEM do bloco de inconsistência — não apenas pelo código de saída.
+
 ## E_A — avaliação de ativação
 
 Para Skills auto-invocáveis, medir separadamente:

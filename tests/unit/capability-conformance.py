@@ -58,6 +58,7 @@ sejam validas. E oraculo de conformidade, nao de veracidade experimental.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -914,6 +915,135 @@ check(len(_hits_sinteticos) == 1 and _acusado,
       "controle positivo: o walker acusa um valor sabidamente errado em fragmento sintetico"
       + ("" if (len(_hits_sinteticos) == 1 and _acusado)
          else f" - hits={_hits_sinteticos} acusado={_acusado}"))
+
+# ---------------------------------------------------------------------------------------
+print("== CC8. lifecycle e exposicao ao router sao eixos independentes (ADR 0044) ==")
+# `state` (lifecycle) responde em que fase de avaliacao a capability esta. `exposure` responde o
+# que a GOVERNANCA autoriza o router a fazer com ela - proposicao diferente, ja separada de
+# `installed` (ADR 0033) e de `projection` (onda 22b) pelo mesmo motivo: colapsar eixos faz uma
+# reclassificacao de um deles mudar o outro por acidente.
+#
+# VOCABULARIO E MAPA VEM DA POLICY, NUNCA HARDCODED AQUI - o mesmo criterio de F1/onda 15: um
+# portao que carrega o proprio criterio nao prova nada sobre o artefato, so sobre si mesmo.
+_EXPO = evpolicy.get("runtime_exposure") or {}
+_EXPO_VOCAB = list(_EXPO.get("vocabulary") or [])
+_EXPO_MAPA = _EXPO.get("allowed_by_lifecycle") or {}
+_EXPO_EA_CAMPOS = list(_EXPO.get("experimental_auto_requires") or [])
+_EXPO_EA_PASTAS = list(_EXPO.get("eval_id_resolves_under") or [])
+_EXPO_ESCOPO = _EXPO.get("scope") or "skill"
+
+
+def _dmi_do_skill(source: str | None) -> bool | None:
+    """`disable-model-invocation` do frontmatter de `source/SKILL.md`. `None` quando a fonte
+    esta ausente ou o arquivo nao tem frontmatter legivel - indeterminado, nao `False`: um
+    tombstone sem `source` nao pode ser lido como 'skill selecionavel pelo modelo'."""
+    if not source:
+        return None
+    caminho = ROOT / source / "SKILL.md"
+    if not caminho.is_file():
+        return None
+    partes = caminho.read_text(encoding="utf-8").split("---")
+    if len(partes) < 3:
+        return None
+    fm = yaml.safe_load(partes[1]) or {}
+    if not isinstance(fm, dict):
+        return None
+    return fm.get("disable-model-invocation") is True
+
+
+def _eval_id_resolve(eval_id, pastas: list[str]) -> bool:
+    """`eval_id` e string decorativa ate resolver para um registro que existe - o mesmo
+    principio de `source_ref`/`resolution_ref` do ADR 0038 (tests/unit/governance-links.py)."""
+    if not eval_id or not isinstance(eval_id, str):
+        return False
+    for rel in pastas:
+        base = ROOT / rel
+        if not base.is_dir():
+            continue
+        if any(p.is_file() and (p.stem == eval_id or p.name.startswith(f"{eval_id}-")
+                                 or p.name.startswith(f"{eval_id}."))
+               for p in base.iterdir()):
+            return True
+    return False
+
+
+def _exposure_falhas(nome: str, cap: dict) -> list[str]:
+    """Falhas de exposicao para UMA capability. Funcao PURA sobre o dict - o mesmo comparador
+    julga capabilities reais do registry e fragmentos sinteticos em memoria (padrao de CC7),
+    para que as invariantes cuja populacao real e ZERO (quarantine/promoted/rejected) nao
+    passem vazias."""
+    falhas: list[str] = []
+    exp = cap.get("exposure")
+    if not isinstance(exp, dict) or "level" not in exp:
+        falhas.append(f"{nome}: sem bloco `exposure.level`")
+        return falhas
+    nivel = exp["level"]
+    if _EXPO_VOCAB and nivel not in _EXPO_VOCAB:
+        falhas.append(f"{nome}: exposure {nivel!r} fora do vocabulario {_EXPO_VOCAB}")
+        return falhas
+    estado = cap.get("state")
+    permitidos = set(_EXPO_MAPA.get(estado) or [])
+    if nivel not in permitidos:
+        falhas.append(f"{nome}: lifecycle {estado!r} nao admite exposure {nivel!r}")
+    # O SEGUNDO LADO DO MESMO EIXO: `off` e amarrado a `installed`, nao ao lifecycle - e o que
+    # liga o eixo novo ao que ja existe (CC3) em vez de criar um paralelo desconectado.
+    instalado = bool(cap.get("installed"))
+    if nivel == "off" and instalado:
+        falhas.append(f"{nome}: exposure off mas installed=true")
+    if nivel != "off" and not instalado:
+        falhas.append(f"{nome}: exposure {nivel!r} mas installed=false")
+    # COERENCIA COM O MECANISMO, na direcao OPOSTA da onda 27: la o esperado vinha do
+    # frontmatter e o obtido de `activation`; aqui o eixo e outro (`exposure`, nao `activation`)
+    # e a mesma independencia de arquivos-fonte se aplica: SKILL.md de um lado, registry.json
+    # do outro.
+    dmi = _dmi_do_skill(cap.get("source"))
+    if dmi is True and nivel in {"auto", "experimental_auto"}:
+        falhas.append(f"{nome}: exposure {nivel!r} mas o frontmatter retira do routing "
+                      "(disable-model-invocation: true)")
+    if dmi is False and nivel == "manual":
+        falhas.append(f"{nome}: exposure manual mas o frontmatter permite selecao pelo modelo")
+    if nivel == "experimental_auto":
+        faltando = sorted(k for k in _EXPO_EA_CAMPOS if not exp.get(k))
+        if faltando:
+            falhas.append(f"{nome}: experimental_auto sem {faltando}")
+            return falhas
+        venc_bruto = exp.get("expires_at")
+        try:
+            venc = datetime.date.fromisoformat(venc_bruto)
+        except (TypeError, ValueError):
+            falhas.append(f"{nome}: expires_at nao e data ISO: {venc_bruto!r}")
+        else:
+            if venc <= datetime.datetime.now(tz=datetime.UTC).date():
+                falhas.append(f"{nome}: experimental_auto VENCIDA em {venc.isoformat()}")
+        if not _eval_id_resolve(exp.get("eval_id"), _EXPO_EA_PASTAS):
+            falhas.append(f"{nome}: eval_id {exp.get('eval_id')!r} nao resolve sob {_EXPO_EA_PASTAS}")
+    return falhas
+
+
+_alvos_expo = {n: c for n, c in caps.items() if c.get("kind") == _EXPO_ESCOPO}
+check(len(_alvos_expo) >= 5, f"ha {_EXPO_ESCOPO} a conferir por exposicao (medido: {len(_alvos_expo)})")
+
+_falhas_expo = [f for n, c in sorted(_alvos_expo.items()) for f in _exposure_falhas(n, c)]
+check(not _falhas_expo,
+      f"toda capability `{_EXPO_ESCOPO}` declara exposure conforme ao lifecycle, a `installed` e ao frontmatter"
+      + ("" if not _falhas_expo else f" - {_falhas_expo}"))
+
+# ANTIVACUIDADE + CONTROLE SINTETICO EM MEMORIA, no padrao de CC7 (linhas 903-917 acima). No
+# registry real, `quarantine`, `promoted` e `rejected` tem populacao ZERO: sem fixture, tres das
+# cinco linhas de `allowed_by_lifecycle` nunca seriam exercitadas, e "verde" nao distinguiria
+# "conforme" de "nao ha o que conferir".
+_frag_negativo = {"kind": "skill", "state": "quarantine", "installed": False,
+                   "exposure": {"level": "auto"}}
+_frag_positivo = {"kind": "skill", "source": "execution/skills/depreciar", "state": "candidate",
+                   "installed": True, "exposure": {"level": "manual"}}
+_falhas_negativo = _exposure_falhas("__cc8_negativo__", _frag_negativo)
+_falhas_positivo = _exposure_falhas("__cc8_positivo__", _frag_positivo)
+check(bool(_falhas_negativo),
+      "controle negativo: fragmento sintetico quarantine+auto e acusado"
+      + ("" if _falhas_negativo else " - nao foi acusado, o comparador estaria vacuo"))
+check(not _falhas_positivo,
+      "controle positivo: fragmento sintetico conforme (candidate+manual) nao e acusado"
+      + ("" if not _falhas_positivo else f" - {_falhas_positivo}"))
 
 failed = sum(not ok for ok, _ in checks)
 print(f"\nTOTAL={len(checks)} FAIL={failed}")

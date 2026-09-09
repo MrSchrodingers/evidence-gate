@@ -28,10 +28,24 @@
       },
       {
         "skill": "write-a-prd",
-        "reason": "grava PRD local via entrevista; efeito local e reversivel via controle de versao.",
+        "reason": "G106 (issue #50): a versao anterior desta linha dizia 'efeito local e reversivel' enquanto o passo 7 do SKILL.md mandava submeter o PRD com `gh issue create` - prosa nao conferida por executor algum. Corrigido nas duas pontas: o SKILL.md passou a gravar o PRD em ./prds/<slug>.md e nao publica mais; a publicacao remota, quando desejada, fica a cargo de /prd-to-issues (manual-only). Ver effects.by_skill.",
         "ref": "execution/skills/write-a-prd/SKILL.md"
       }
     ]
+  },
+  "effects": {
+    "_comment": "G106 (issue #50). Dimensao INDEPENDENTE de `activation`: a de cima responde QUEM decide disparar (modelo ou operador); esta responde O QUE a skill faz ao mundo fora da conversa. `activation.model_invocable_exceptions` podia (e podia falsamente, caso write-a-prd) justificar elegibilidade ao routing com uma frase de EFEITO sem que nenhum executavel a conferisse - PolicyDeclared sem PolicyEnforced, na dimensao de efeito em vez da de ativacao. A ASSIMETRIA que sustenta esta correcao, e que tem de sobreviver em qualquer implementacao futura: a CLASSE de uma skill vem da DECLARACAO em `by_skill` (vocabulario fechado, fail-closed - skill sem entrada reprova, nunca vira `pure` por omissao); o detector sintatico de tests/unit/skill-invocation-policy.sh e um CONTROLE DE INCONSISTENCIA que so pode AGRAVAR uma declaracao branda quando acha padrao de escrita remota no corpo - a AUSENCIA de padrao nunca promove skill alguma a `pure`, porque ausencia de string e ausencia de evidencia, nao evidencia de ausencia.",
+    "vocabulary": ["pure", "local-write", "remote-write", "destructive"],
+    "by_skill": {
+      "depreciar": "local-write",
+      "design-system-proposal": "local-write",
+      "forge": "local-write",
+      "graphify": "local-write",
+      "grill-me": "pure",
+      "prd-to-issues": "remote-write",
+      "prd-to-plan": "local-write",
+      "write-a-prd": "local-write"
+    }
   },
   "selection": {
     "mode": "evidence-gated",

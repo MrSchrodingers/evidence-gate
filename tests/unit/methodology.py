@@ -135,6 +135,15 @@ check(analysis["report_null_and_negative_results"] is True, "resultados nulos e 
 check(analysis["no_universal_skill_claim_from_single_model"] is True, "um modelo nao sustenta claim universal")
 check(analysis["no_universal_scaffold_claim_from_single_scaffold"] is True, "um scaffold nao sustenta claim universal")
 
+# G107 (issue #51). REGEX DE INVOCACAO EXTRAIDA PARA CONSTANTE, e o LOOKAHEAD NEGATIVO
+# RELAXADO de `(?![\w/.-])` para `(?![\w/-])`. Medido: a forma antiga tratava `.` como
+# caractere de continuacao do token, entao QUALQUER invocacao em fim de frase - "veja /tdd."
+# - ficava invisivel ao portao, porque o ponto final bloqueava o lookahead e o `findall`
+# nunca via o token. E exatamente onde `description:` do frontmatter cai por convencao
+# ("...skill seguinte /tdd."). Controle executado: relaxar o lookahead rendeu 4 tokens novos
+# no corpus real e 0 falso positivo.
+_RE_INVOCACAO = re.compile(r"(?<![\w/.<)])/([a-z][a-z0-9-]{2,})(?![\w/-])")
+
 # ------------------------------------------------------------------------------------------
 # REFERENCIA ENTRE SKILLS TEM DE RESOLVER. Achado de 2026-08-14, e a forma ja e conhecida:
 # `execution/skills/promoted/design-system-proposal/SKILL.md` invocava `/direcao-de-arte` em
@@ -167,10 +176,39 @@ depreciadas = {n for n, c in (_reg.get("capabilities") or {}).items()
                if c.get("state") == "deprecated"}
 agentes = {f.stem for f in (ROOT / "execution/agents").glob("*.md")}
 
-# O universo que uma invocacao `/x` pode resolver: skill promovida, agente, ou um arquivo de
-# apoio DENTRO da propria skill (`references/x.md`). Qualquer outra coisa e placeholder de prosa
-# (declarado abaixo) ou referencia morta.
-_PLACEHOLDERS = {"cmd", "nome", "plugin", "exemplo", "path", "arquivo", "termo", "id"}
+# G107 (issue #51). Comando NATIVO do Claude Code: terceiro namespace de resolucao valido para
+# `/x`, ao lado de skill e arquivo local. Antes desta lista, `plugin` vivia em
+# `_PLACEHOLDERS` como escape generico de prosa; o nome certo do que ele resolve e "comando
+# nativo do harness" (`/plugin install ...`, usado em forge/SKILL.md), nao "prosa sem
+# referente" - por isso sai de `_PLACEHOLDERS` e entra aqui.
+_COMANDOS_NATIVOS = {
+    "clear", "compact", "context", "agents", "help", "init", "review", "model", "cost",
+    "hooks", "mcp", "memory", "resume", "rewind", "usage", "status", "config",
+    "permissions", "export", "todos", "doctor", "login", "logout", "bug", "upgrade",
+    "add-dir", "plugin",
+}
+
+# G107 (issue #51). Agente NATIVO do runtime (subagent_type do harness, ex.: `Task(Explore)`):
+# nao mora em `execution/agents/` porque nao pertence a este repositorio. Sem este conjunto, a
+# direcao inversa abaixo (prosa "agente `x`") reprovaria `design-system-proposal/SKILL.md:34`
+# ("agente `Explore`"), que e referencia correta - falso positivo medido ao preparar a correcao.
+_AGENTES_NATIVOS = {"Explore", "Plan", "Task", "general-purpose"}
+
+# O universo que uma invocacao `/x` pode resolver: skill promovida, comando nativo do harness, ou
+# um arquivo de apoio DENTRO da propria skill (`references/x.md`). Qualquer outra coisa e
+# placeholder de prosa (declarado abaixo) ou referencia morta.
+#
+# AGENTE NAO ENTRA NESTE CONJUNTO (G107, issue #51, causa raiz). `/x` no Claude Code e
+# superficie exclusiva de skill/comando; agente se aciona por linguagem natural ou
+# `@agent-<nome>`, nunca por barra. A versao anterior desta linha tratava `_tok in agentes` como
+# resolucao valida de `/x` - fazia `/tdd` parecer correto pelo motivo errado: `tdd` SER agente
+# de fato era tomado como prova de que `/tdd` estava certo, quando e a prova do contrario.
+_PLACEHOLDERS = {"cmd", "nome", "exemplo", "path", "arquivo", "termo", "id"}
+
+# G107 (issue #51). Direcao inversa: referencia em prosa a agente, forma "agente `x`" (sempre
+# com crase neste corpus). Toda ocorrencia tem de resolver para `execution/agents/` ou para o
+# conjunto de agentes nativos do runtime acima.
+_RE_AGENTE_PROSA = re.compile(r"agente\s+`([a-zA-Z][a-zA-Z0-9-]*)`")
 
 mortas = []
 for _sk in sorted(governadas):
@@ -183,19 +221,31 @@ for _sk in sorted(governadas):
     # TODO arquivo `.md` da skill, nao so o SKILL.md: `references/` e instrucao que o operador
     # segue, e foi exatamente onde a referencia morta sobreviveu ao portao anterior.
     for _md in sorted(_dir.rglob("*.md")):
-        # `<` no lookbehind exclui tag de fechamento XML: `</regras-fatia-vertical>` casava
-        # como invocacao e era falso positivo. `)` exclui alternancia em prosa: ao alargar a
-        # leitura para `references/`, `Marca(s)/produto(s)` passou a casar como `/produto`.
-        # Invocacao nunca vem colada a parentese de fechamento; alternancia sempre vem.
-        for _tok in sorted(set(re.findall(r"(?<![\w/.<)])/([a-z][a-z0-9-]{2,})(?![\w/.-])", _md.read_text(encoding="utf-8")))):
-            if _tok in governadas or _tok in agentes or _tok == _sk:
-                continue
-            if _tok in _locais or _tok in _PLACEHOLDERS:
-                continue
-            _onde = _md.relative_to(_dir)
-            mortas.append(f"{_sk}/{_onde} -> /{_tok}" + (" (DEPRECADA)" if _tok in depreciadas else " (INEXISTENTE)"))
+        _onde = _md.relative_to(_dir)
+        # G107 (issue #51): laco por LINHA, nao por arquivo inteiro - a mensagem de reprovacao
+        # passa a apontar `arquivo:linha`, granularidade que a issue exige para as 9 ocorrencias.
+        for _n, _linha in enumerate(_md.read_text(encoding="utf-8").splitlines(), start=1):
+            # `<` no lookbehind exclui tag de fechamento XML: `</regras-fatia-vertical>` casava
+            # como invocacao e era falso positivo. `)` exclui alternancia em prosa: ao alargar a
+            # leitura para `references/`, `Marca(s)/produto(s)` passou a casar como `/produto`.
+            # Invocacao nunca vem colada a parentese de fechamento; alternancia sempre vem.
+            for _tok in sorted(set(_RE_INVOCACAO.findall(_linha))):
+                if _tok in governadas or _tok == _sk:
+                    continue
+                if _tok in _locais or _tok in _PLACEHOLDERS or _tok in _COMANDOS_NATIVOS:
+                    continue
+                if _tok in agentes:
+                    mortas.append(f"{_sk}/{_onde}:{_n} -> /{_tok} (E AGENTE, NAO SKILL)")
+                    continue
+                mortas.append(f"{_sk}/{_onde}:{_n} -> /{_tok}"
+                               + (" (DEPRECADA)" if _tok in depreciadas else " (INEXISTENTE)"))
+            for _ag in sorted(set(_RE_AGENTE_PROSA.findall(_linha))):
+                if _ag in agentes or _ag in _AGENTES_NATIVOS:
+                    continue
+                mortas.append(f"{_sk}/{_onde}:{_n} -> agente `{_ag}` (NAO EXISTE)")
 
-check(not mortas, "toda invocacao /x em .md da skill resolve para skill, agente ou arquivo local"
+check(not mortas, "toda invocacao /x em .md da skill resolve para skill, comando nativo ou "
+      "arquivo local, e toda referencia a agente resolve para agente existente"
       + ("" if not mortas else f" - mortas: {sorted(set(mortas))}"))
 # ANTIVACUIDADE em dois eixos: sem skills o caso passaria vazio, e sem agentes o universo de
 # resolucao ficaria largo demais e absolveria referencia morta.

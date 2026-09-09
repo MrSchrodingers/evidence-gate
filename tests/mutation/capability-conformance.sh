@@ -106,10 +106,15 @@ def dossie(extra=None, fonte="execution/skills/graphify"):
     open("evidence/skills/graphify.json","w").write(_j.dumps(d))
 '
 
+# `exposure` acompanha a promocao hipotetica (ADR 0044): `promoted` nao admite
+# `experimental_auto` (o nivel real de graphify no registry), entao o controle positivo tem de
+# elevar tambem o eixo de exposicao para um nivel que `promoted` admite - `auto`, coerente com o
+# frontmatter de graphify (sem `disable-model-invocation`, que reprovaria `manual`). Sem este
+# ajuste o controle positivo reprovaria por um eixo que este mutante nunca pretendeu exercitar.
 mutante MCAP3 "dossie 7/7 com evaluated_with casado APROVA (controle positivo)" 0 \
   "$_PY$_DIG"'
 dossie()
-c["graphify"].update(state="promoted",evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
+c["graphify"].update(state="promoted",exposure={"level":"auto"},evidence={"dossier":"evidence/skills/graphify.json","status":"valid"})'"$_SAVE"
 
 mutante MCAP4 "dossie com os 7 nomes e valores VAZIOS reprova" 1 \
   "$_PY"'

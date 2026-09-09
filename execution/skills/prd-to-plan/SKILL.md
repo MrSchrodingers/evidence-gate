@@ -10,7 +10,7 @@ Transforma um PRD em plano de implementacao por fases usando fatias verticais (t
 ## Pipeline (Skills Relacionadas)
 
 ```
-/write-a-prd → [VOCE ESTA AQUI] → /prd-to-issues → /tdd
+/write-a-prd → [VOCE ESTA AQUI] → /prd-to-issues → agente tdd
 ```
 
 - **Skill anterior**: `/write-a-prd` (o PRD deve existir antes)
@@ -187,5 +187,5 @@ Orientacoes duraveis (sem caminhos de arquivo):
 
 1. Aprovar este plano
 2. Invocar `/prd-to-issues` para criar issues no GitHub a partir destas fases
-3. Implementar cada issue via `/tdd` (ciclos red-green-refactor)
+3. Implementar cada issue via o agente `tdd` (ciclos red-green-refactor)
 </template-plano>

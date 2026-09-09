@@ -8,8 +8,10 @@
 # 2 (docs/adr/0020): toda garantia de seguranca e validada por MUTACAO - remove-se a garantia e
 # EXIGE-SE que a regressao reprove. Um teste que sobrevive ao mutante nao testa a garantia.
 #
-# ORDEM DO TRABALHO (declarada, nao encenada): antes deste arquivo existir, `tests/unit/run.sh`
-# secao 8 cobria fable-guard.sh com TRES asercoes - nega sem sentinela, nega em subagente (mas
+# ORDEM DO TRABALHO (declarada, nao encenada): antes deste arquivo existir,
+# `tests/unit/gate-e-guardas.sh` (entao chamado `tests/unit/run.sh`, renomeado na issue #55/
+# G111 quando `run.sh` virou o agregador de suites) secao 8 cobria fable-guard.sh com TRES
+# asercoes - nega sem sentinela, nega em subagente (mas
 # SEM sentinela, o que nao discrimina a negacao INCONDICIONAL do consentimento valido - ver nota
 # no proprio arquivo de regressao), e nega sentinela nao-root. Faltava regressao ANTES de faltar
 # mutante: a secao 8 foi estendida com 13 casos novos (permite opus; ancora Bash reduz falso
@@ -20,7 +22,7 @@
 # POSSE DE ROOT SEM SUDO NAO-INTERATIVO: tres garantias (permitir com sentinela de root valido;
 # negar subagente MESMO com esse sentinela valido; negar sentinela de root expirado) so sao
 # observaveis com um arquivo que `stat -c '%U'` relate como pertencente a "root". Este ambiente
-# nao tem sudo nao-interativo. A REGRESSAO (tests/unit/run.sh) resolve isso com
+# nao tem sudo nao-interativo. A REGRESSAO (tests/unit/gate-e-guardas.sh) resolve isso com
 # `unshare --map-root-user --user`: um namespace de usuario NAO PRIVILEGIADO em que o kernel
 # mapeia o UID real do processo para 0 - um arquivo criado ali E relatado como "root" por
 # `stat -c '%U'`, inclusive por processos FORA daquele namespace especifico (mesmo UID real,
@@ -37,7 +39,7 @@ cd "$(dirname "$0")/../.." || exit 1
 # seis incidentes medidos que motivaram isto.
 . "$(dirname "$0")/../lib/arena.sh"
 ORIG="control/hooks/fable-guard.sh"
-REG="tests/unit/run.sh"
+REG="tests/unit/gate-e-guardas.sh"
 TMP="$(mktemp -d)"; trap 'cp -f "$TMP/orig.sh" "$ORIG" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 cp -f "$ORIG" "$TMP/orig.sh"
 P=0; F=0; BASELINE=nao; EXPECTED_MUTANTS=12
@@ -107,9 +109,9 @@ echo "== mutacao: cada garantia removida DEVE quebrar a regressao =="
 
 # MFB1 - GARANTIA CENTRAL (ADR 0012, "Decisao" item 1): subagente nega INCONDICIONALMENTE, e a
 # negacao sobrevive a um sentinela que, sozinho, seria aceito. O caso "nega em SUBAGENTE (sem
-# excecao)" ja existente em tests/unit/run.sh NAO discrimina esta mutacao (sem sentinela, ambos
-# os caminhos - checagem de agent_id e fallback de "sem sentinela" - chegam no mesmo exit 2); so
-# o caso novo com sentinela de root VALIDO isola a garantia.
+# excecao)" ja existente em tests/unit/gate-e-guardas.sh NAO discrimina esta mutacao (sem
+# sentinela, ambos os caminhos - checagem de agent_id e fallback de "sem sentinela" - chegam no
+# mesmo exit 2); so o caso novo com sentinela de root VALIDO isola a garantia.
 mutante MFB1 "subagente nega mesmo com sentinela de root valido" \
   "NEGA subagente MESMO com sentinela de root valido" \
   troca '[ -n "$AGENT_ID" ]' '[ -n "" ]'

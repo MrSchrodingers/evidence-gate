@@ -140,5 +140,22 @@
       "status": "NAO IMPLEMENTADA - exige oraculo de runtime que este repositorio nao tem",
       "blocked_by": "a sonda de eventos de runtime esta NAO VERIFICADA desde a onda 13"
     }
+  },
+  "runtime_exposure": {
+    "_comment": "ONDA 28 (ADR 0044). Lifecycle (`orchestration/skill-policy.json:lifecycle.states`) e exposicao ao router sao eixos INDEPENDENTES, no mesmo padrao ja aplicado a `state` x `installed` (ADR 0033) e a `projection` (onda 22b). `state` responde 'em que fase de avaliacao a capability esta'; `exposure` responde 'o que a governanca AUTORIZA o router a fazer com ela'. Nenhum dos dois observa o que o runtime de fato fez - essa e a dimensao candidata E_A, declarada acima e permanece NAO IMPLEMENTADA.",
+    "scope": "skill",
+    "why": "Liga-se a `dimensions_candidatas.E_A`: `experimental_auto` e a forma de autorizar selecao automatica pelo router POR PRAZO, enquanto a ativacao de fato permanece sem oraculo. Escopo restrito a `kind: skill` nesta onda - agente e delegado pelo orquestrador e hook dispara por evento; modelar exposicao para eles fica para quando o padrao provar valor aqui (mesma postura do ADR 0036 com G7).",
+    "vocabulary": ["off", "manual", "experimental_auto", "auto"],
+    "allowed_by_lifecycle": {
+      "_comment": "As cinco invariantes L->X. `off` e permitido em todo estado porque e amarrado a `installed=false` (ver `off <=> installed==false` no portao), nao ao lifecycle. `quarantine`, `deprecated` e `rejected` so admitem `off` porque `tests/unit/capability-conformance.py` (CC3) ja reprova essas tres instaladas - a mesma condicao, olhada pelo eixo novo. As duas restricoes GENUINAMENTE novas: `candidate` nao admite `auto`, `promoted` nao admite `experimental_auto`.",
+      "quarantine": ["off"],
+      "candidate": ["off", "manual", "experimental_auto"],
+      "promoted": ["off", "manual", "auto"],
+      "deprecated": ["off"],
+      "rejected": ["off"]
+    },
+    "experimental_auto_requires": ["eval_id", "runtime", "model", "started_at", "expires_at"],
+    "eval_id_resolves_under": ["evidence/experiments", "evidence/claims"],
+    "limit": "Vocabulario e mapa declaram o que a GOVERNANCA autoriza. Nenhum campo aqui, nem `runtime`/`model` declarados no bloco `exposure` de uma capability, e conferido contra o runtime que de fato executa a sessao - o mesmo limite ja assumido em `staleness.limit` para dossie de skill. `expires_at` vencido reprova por PASSAGEM DE TEMPO, sem mudanca de codigo: efeito pretendido, nao falha de manutencao."
   }
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # VALIDACAO POR MUTACAO do CONTRATO DE SUBAGENTE. Remove cada garantia de
-# `evidence/hooks/subagent-contract.sh` e EXIGE que `tests/unit/run.sh` reprove NO CASO-ALVO.
+# `evidence/hooks/subagent-contract.sh` e EXIGE que `tests/unit/gate-e-guardas.sh` reprove NO
+# CASO-ALVO (renomeado da issue #55/G111; `tests/unit/run.sh` e agora o agregador de suites).
 #
 # Por que este arquivo existe (2026-08-04): `tests/mutation/run.sh` so mutava o verify-gate.
 # O contrato de subagente - o hook com o pior historico do projeto, origem dos ADRs 0014, 0018
@@ -20,7 +21,7 @@ cd "$(dirname "$0")/../.." || exit 1
 # seis incidentes medidos que motivaram isto.
 . "$(dirname "$0")/../lib/arena.sh"
 ORIG="evidence/hooks/subagent-contract.sh"
-REG="tests/unit/run.sh"
+REG="tests/unit/gate-e-guardas.sh"
 TMP="$(mktemp -d)"
 cp -f "$ORIG" "$TMP/orig.sh"
 # O trap restaura o ORIGINAL antes de apagar o TMP - na ordem inversa o arquivo se perde.
