@@ -52,6 +52,31 @@ VOCAB="$(jq -r '.activation.vocabulary[]' orchestration/skill-policy.json 2>/dev
 chk "policy declara vocabulario de ativacao nao vazio" \
     "$([ -n "$VOCAB" ] && echo sim || echo nao)" sim
 
+# ------------------------------------------------------------------------------------------
+# G106 (issue #46 tratava ativacao; issue #50 fecha a lacuna de EFEITO). Mesmo padrao de leitura
+# do vocabulario acima, agora para `effects.vocabulary` - enum fechado, lido do disco e nao
+# hardcoded aqui, para que um efeito fora do enum (M5-like: "banana") reprove por nome.
+EFFECT_VOCAB="$(jq -r '.effects.vocabulary[]' orchestration/skill-policy.json 2>/dev/null)"
+chk "policy declara vocabulario de efeito nao vazio" \
+    "$([ -n "$EFFECT_VOCAB" ] && echo sim || echo nao)" sim
+
+# CONTROLE DE INCONSISTENCIA (bloco c, abaixo), nunca definicao de classe: casar um destes
+# padroes so pode AGRAVAR uma declaracao de efeito branda, nunca abranda-la, e a ausencia de
+# qualquer um deles nao prova pureza nenhuma - so a falta de evidencia sintatica em contrario.
+REMOTE_WRITE_PATTERNS=(
+  'gh\s+issue\s+create'
+  'gh\s+pr\s+create'
+  # `gh api` sozinho casa LEITURA tambem (`gh api repos/../contents/.. --jq .content`,
+  # uso real em design-system-proposal/references/repo-study.md:22). Exigir o verbo de
+  # escrita explicito. Isto REDUZ deteccao, e a reducao e segura porque este detector
+  # nunca afirma pureza: o ramo negativo imprime `ok` narrativo, nao assercao.
+  'gh\s+api\s+[^|]*(-X|--method)\s*(POST|PUT|PATCH|DELETE)'
+  'git\s+push'
+  'curl\s+-X\s*(POST|PUT|PATCH|DELETE)'
+  '\b(http|httpx)\.(post|put|patch|delete)\('
+  'aws\s+s3\s+cp'
+)
+
 for d in execution/skills/*/; do
   n="$(basename "$d")"
   if frontmatter "$d/SKILL.md" | grep -q '^disable-model-invocation: true$'; then
@@ -80,10 +105,69 @@ for d in execution/skills/*/; do
     if [ -n "$reason" ]; then exc_ok=sim; else exc_ok=nao; fi
     chk "excecao de ativacao por modelo declarada com reason: $n" "$exc_ok" sim
   fi
+
+  # ---------------------------------------------------------------------------------------
+  # G106 (issue #50). A politica acima so modela UMA relacao - registry.activation bate com o
+  # frontmatter - e nenhuma sobre EFEITO. `write-a-prd` tinha `activation: contextual` coerente
+  # com o proprio frontmatter (nenhuma das assercoes de cima acusava nada) e publicava
+  # `gh issue create` no corpo, com a `reason` da excecao afirmando "efeito local e reversivel" -
+  # uma prosa nunca conferida por executavel algum. Consistencia entre declaracoes de ATIVACAO
+  # nao e propriedade de EFEITO; os tres blocos abaixo fecham essa dimensao, lida de
+  # `orchestration/skill-policy.json:effects`, fonte canonica nova.
+
+  # BLOCO (a). EFEITO DECLARADO, FAIL-CLOSED. Skill sem entrada em `effects.by_skill` reprova -
+  # o vocabulario fechado nao promove por omissao, e omissao nunca vira "pure" por default.
+  efeito="$(jq -r --arg n "$n" '.effects.by_skill[$n] // "AUSENTE"' orchestration/skill-policy.json)"
+  chk "efeito declarado em orchestration/skill-policy.json: $n" \
+      "$([ "$efeito" != AUSENTE ] && echo sim || echo nao)" sim
+  if printf '%s\n' "$EFFECT_VOCAB" | grep -qx "$efeito"; then efeito_enum_ok=sim; else efeito_enum_ok=nao; fi
+  chk "efeito pertence ao vocabulario fechado da policy: $n" "$efeito_enum_ok" sim
+
+  # BLOCO (b). INVARIANTE DE CLASSE:  effect in {remote-write, destructive} => activation != contextual.
+  # O lado da ativacao usado aqui e `$esperado` (derivado do FRONTMATTER em disco, calculado no
+  # topo do laco) e NUNCA `$obtido` (registry.json) nem nada dentro da propria policy - dois
+  # arquivos independentes, o mesmo padrao que a assercao principal ja usa acima. So se avalia
+  # quando o efeito declarado exige o confinamento; efeito pure/local-write nao gera assercao
+  # aqui (silencio nao e aprovacao de pureza, e o bloco (c) abaixo e quem audita esse lado).
+  if [ "$efeito" = remote-write ] || [ "$efeito" = destructive ]; then
+    invariante_ok="$([ "$esperado" != contextual ] && echo sim || echo nao)"
+    chk "invariante efeito remoto => activation!=contextual: $n (efeito=$efeito activation=$esperado)" \
+        "$invariante_ok" sim
+  fi
+
+  # BLOCO (c). CONTROLE DE INCONSISTENCIA SINTATICA - NUNCA DEFINICAO DE CLASSE. A lista de
+  # padroes abaixo so pode AGRAVAR uma declaracao branda (pure/local-write): achar um deles no
+  # corpo com efeito declarado abaixo de `remote-write` reprova. A AUSENCIA de qualquer padrao
+  # NAO promove skill alguma a `pure` - ausencia de string e ausencia de evidencia sintatica, e
+  # nunca evidencia de ausencia de efeito; por isso o `else` abaixo imprime um `ok` narrativo,
+  # nunca uma assercao de pureza. A leitura correta do criterio da issue #50 e "efeito declarado
+  # ABAIXO de remote-write", nao "declarada pure": `gh issue create` numa skill `local-write` e
+  # igualmente uma escrita remota que o efeito local declarado nao cobre.
+  # F2 (refutador da onda 28a): a varredura lia SO `SKILL.md`, e o corpo de uma skill nao e um
+  # arquivo - e o diretorio. Medido: `execution/skills/design-system-proposal/references/
+  # repo-study.md:22` carrega `gh api repos/<org>/<repo>/contents/` numa skill `contextual` +
+  # `local-write`, e o portao imprimia "sem padrao de escrita remota no corpo". O ADR 0045 desta
+  # mesma onda registra que `references/` foi exatamente onde o defeito sobreviveu duas vezes, e
+  # `tests/unit/methodology.py:223` ja usa `rglob("*.md")` por esse motivo. Varredura recursiva
+  # alinha os dois oraculos em vez de deixa-los discordar sobre a mesma classe.
+  achados=()
+  for pat in "${REMOTE_WRITE_PATTERNS[@]}"; do
+    if find "$d" -type f -name '*.md' -print0 2>/dev/null \
+       | xargs -0 -r grep -lEi "$pat" 2>/dev/null | grep -q .; then
+      achados+=("$pat")
+    fi
+  done
+  if [ "${#achados[@]}" -gt 0 ]; then
+    inconsistencia_ok="$([ "$efeito" = remote-write ] || [ "$efeito" = destructive ] && echo sim || echo nao)"
+    chk "corpo com padrao de escrita remota exige efeito >= remote-write: $n (efeito=$efeito achados=${achados[*]})" \
+        "$inconsistencia_ok" sim
+  else
+    echo "  ok    $n sem padrao de escrita remota no corpo (ausencia NAO promove a pure - so nao refuta)"
+  fi
 done
 
 echo
 printf 'PASS=%s FAIL=%s\n' "$P" "$F"
-EXPECTED=26
+EXPECTED=45
 [ "$P" -eq "$EXPECTED" ] || { echo "CONTAGEM INESPERADA: PASS=$P esperado=$EXPECTED" >&2; exit 1; }
 [ "$F" -eq 0 ]

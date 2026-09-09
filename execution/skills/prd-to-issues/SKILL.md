@@ -1,6 +1,6 @@
 ---
 name: prd-to-issues
-description: Quebra um PRD em issues GitHub independentes usando fatias verticais (tracer bullets). Cada issue eh pegavel por qualquer dev. Usar quando o usuario quiser converter PRD em issues, criar tickets de implementacao, ou quebrar PRD em work items. Skill anterior /prd-to-plan, skill seguinte /tdd.
+description: Quebra um PRD em issues GitHub independentes usando fatias verticais (tracer bullets). Cada issue eh pegavel por qualquer dev. Usar quando o usuario quiser converter PRD em issues, criar tickets de implementacao, ou quebrar PRD em work items. Skill anterior /prd-to-plan; em seguida, delegar ao agente tdd.
 disable-model-invocation: true
 ---
 
@@ -16,11 +16,11 @@ Quebra um PRD em issues GitHub independentes e pegiveis usando fatias verticais 
 ## Pipeline (Skills Relacionadas)
 
 ```
-/write-a-prd → /prd-to-plan → [VOCE ESTA AQUI] → /tdd
+/write-a-prd → /prd-to-plan → [VOCE ESTA AQUI] → agente tdd
 ```
 
 - **Skill anterior**: `/prd-to-plan` (plano de fases deve existir, ou o PRD diretamente)
-- **Skill seguinte**: `/tdd` (implementar cada issue com red-green-refactor)
+- **Passo seguinte**: o agente `tdd` (implementar cada issue com red-green-refactor)
 
 ---
 
@@ -28,9 +28,15 @@ Quebra um PRD em issues GitHub independentes e pegiveis usando fatias verticais 
 
 ### 1. Localizar o PRD
 
-Peca ao usuario o numero da issue GitHub do PRD (ou URL).
+O PRD chega aqui em uma de duas formas, porque `/write-a-prd` grava localmente e nao publica
+(G106, issue #50):
 
-Se o PRD nao esta no contexto, busque com `gh issue view <number>` (com comentarios).
+- **Ja existe como issue GitHub.** Peca ao usuario o numero da issue do PRD (ou URL). Se o PRD
+  nao esta no contexto, busque com `gh issue view <number>` (com comentarios).
+- **Existe apenas como arquivo local**, tipicamente `./prds/<slug>.md`. Publique-o ANTES de
+  fatiar em issues: crie a issue do PRD a partir do conteudo do arquivo e use o numero devolvido
+  como PRD pai no restante deste processo. A escrita remota continua sob decisao do operador,
+  porque esta skill ja e `disable-model-invocation: true`.
 
 Se existe um plano em `./plans/`, leia-o tambem — ele contem decisoes arquiteturais e fases ja validadas.
 
@@ -127,7 +133,7 @@ Referencia por numero do PRD pai:
 ## Guia de Implementacao
 
 Sugestao de abordagem (sem caminhos de arquivo):
-1. Implementar via `/tdd` (red-green-refactor)
+1. Implementar com o agente `tdd` (red-green-refactor)
 2. Seguir padroes existentes do modulo X
 3. Adicionar observabilidade (metricas, logs, traces)
 4. Revisar com o agente `revisor-codigo` antes de merge
@@ -155,5 +161,5 @@ Issues criadas:
 
 Sugira ao usuario:
 - Priorizar as issues sem bloqueio para comecar imediatamente
-- Usar `/tdd` para implementar cada issue
+- Usar o agente `tdd` para implementar cada issue
 - Usar o agente `revisor-codigo` antes de cada merge

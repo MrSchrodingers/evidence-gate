@@ -24,6 +24,10 @@ bash tests/unit/managed-root-trust.sh
 # acima, que tambem nao tem passo dedicado em verify-pr.yml/verify-push.yml).
 bash tests/unit/risk-policy.sh
 
+# G110 (issue #54) - ALCANCE DE ATOR, simetrico ao alcance de workflow que risk-policy.sh acima
+# verifica. Ver tests/unit/guidance-projection.sh. Mesmo caminho sem passo proprio no CI.
+bash tests/unit/guidance-projection.sh
+
 # ONDA 18 - O RENDERER DO CORPUS, EXERCITADO NOS DOIS MODOS.
 #
 # `evidence/corpus/render.py` nasceu na onda 18 e a CAMADA 3 de `evidence/cobertura.sh` o pegou

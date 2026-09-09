@@ -235,7 +235,10 @@
       "retired_at": "2026-08-14",
       "superseded_by": "refutador",
       "reason": "validava na MESMA resposta que propos - auto-correcao intrinseca; o agente refutador faz a mesma pergunta com contexto separado (ADR 0011)",
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "off"
+      }
     },
     "depreciar": {
       "kind": "skill",
@@ -261,7 +264,10 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "manual"
+      }
     },
     "design-system-proposal": {
       "kind": "skill",
@@ -287,7 +293,19 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "experimental_auto",
+        "eval_id": "EA-0001",
+        "runtime": {
+          "claude_code": "2.1.226"
+        },
+        "model": {
+          "name": "opus-5"
+        },
+        "started_at": "2026-09-09",
+        "expires_at": "2026-12-08"
+      }
     },
     "ds4-notify.sh": {
       "kind": "hook_instrument",
@@ -356,7 +374,10 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "manual"
+      }
     },
     "graphify": {
       "kind": "skill",
@@ -382,7 +403,19 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "experimental_auto",
+        "eval_id": "EA-0001",
+        "runtime": {
+          "claude_code": "2.1.226"
+        },
+        "model": {
+          "name": "opus-5"
+        },
+        "started_at": "2026-09-09",
+        "expires_at": "2026-12-08"
+      }
     },
     "graphify-scout-mode.sh": {
       "kind": "hook_guidance",
@@ -433,7 +466,19 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "experimental_auto",
+        "eval_id": "EA-0001",
+        "runtime": {
+          "claude_code": "2.1.226"
+        },
+        "model": {
+          "name": "opus-5"
+        },
+        "started_at": "2026-09-09",
+        "expires_at": "2026-12-08"
+      }
     },
     "implementador": {
       "kind": "agent",
@@ -611,7 +656,10 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "manual"
+      }
     },
     "prd-to-plan": {
       "kind": "skill",
@@ -637,7 +685,19 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "experimental_auto",
+        "eval_id": "EA-0001",
+        "runtime": {
+          "claude_code": "2.1.226"
+        },
+        "model": {
+          "name": "opus-5"
+        },
+        "started_at": "2026-09-09",
+        "expires_at": "2026-12-08"
+      }
     },
     "read-budget.sh": {
       "kind": "hook_gate",
@@ -927,7 +987,19 @@
           }
         }
       },
-      "projection": "user"
+      "projection": "user",
+      "exposure": {
+        "level": "experimental_auto",
+        "eval_id": "EA-0001",
+        "runtime": {
+          "claude_code": "2.1.226"
+        },
+        "model": {
+          "name": "opus-5"
+        },
+        "started_at": "2026-09-09",
+        "expires_at": "2026-12-08"
+      }
     },
     "activation-log": {
       "kind": "hook_instrument",

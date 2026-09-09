@@ -91,8 +91,10 @@ chk "T1b: apos triplicar (real=$REAL no disco), o denominador declarado muda par
 TOTU="$(campo "$OUT1" skill-usada total)"
 chk "B1: skill-usada (invocada so em subagente) tem total > 0" \
     "$([ "${TOTU:-0}" -gt 0 ] 2>/dev/null && echo sim || echo nao)" sim
-chk "B2: skill-usada NAO aparece na listagem de zero-uso" \
-    "$(grep -c '  skill-usada:' <<<"$OUT1")" 0
+# a classificacao A-F imprime uma linha "  {skill}: ..." para TODA skill (uso>0 inclusive,
+# CASO C); o que B2 precisa e que skill-usada NAO caia no CASO A/B de zero-uso/routing-failure.
+chk "B2: skill-usada NAO cai em CASO A/B (zero-uso/routing-failure)" \
+    "$(grep -E '  skill-usada:.*CASO [AB]' <<<"$OUT1" >/dev/null && echo sim || echo nao)" nao
 
 # E - mencao em prosa (sem marcador estrutural) NAO conta como uso no total
 TOTF="$(campo "$OUT1" skill-fantasma total)"
@@ -139,8 +141,13 @@ chk "T5b: artefato AUSENTE no disco aparece na saida (mesma skill, mesmo transcr
     "$(grep -q 'ausente' <<<"$OUT_AUS" && echo sim || echo nao)" sim
 chk "T5c: CONTROLE - encontrado e ausente produzem saidas DIFERENTES (o script toca o disco de fato)" \
     "$([ "$OUT_ENC" != "$OUT_AUS" ] && echo dif || echo igual)" dif
-chk "D1: artefato mapeado e AUSENTE estima o denominador -> skill VIRA candidata (rotulo alcancavel)" \
-    "$(grep -q 'CANDIDATAS A DEPRECIACAO' <<<"$OUT_AUS" && grep -q 'skill-obscura' <<<"$OUT_AUS" && echo sim || echo nao)" sim
+# D1 SUBSTITUIDA (nao suplementada): a versao anterior deste caso afirmava exatamente o
+# comportamento que a reforma da assimetria invertida remove - artefato AUSENTE nunca mais
+# produz CANDIDATAS A DEPRECIACAO; cai em CASO A (SEM INFORMACAO), ausencia de evidencia
+# permanece ausencia de evidencia.
+chk "D1: artefato mapeado e AUSENTE cai em CASO A (SEM INFORMACAO), NUNCA em CANDIDATAS A DEPRECIACAO" \
+    "$(grep -q 'CASO A' <<<"$OUT_AUS" && grep -q 'skill-obscura' <<<"$OUT_AUS" && \
+       ! grep -q 'CANDIDATAS A DEPRECIACAO' <<<"$OUT_AUS" && echo sim || echo nao)" sim
 chk "D2: artefato ENCONTRADO rebaixa (uso possivel fora do canal medido), NAO vira candidata" \
     "$(grep -q 'CANDIDATAS A DEPRECIACAO' <<<"$OUT_ENC" && echo sim || echo nao)" nao
 
@@ -198,9 +205,62 @@ echo "== defeito adjacente (plano 1.7): a mensagem de uso aponta para o caminho 
 chk "1.7: 'Uso:' cita evidence/telemetry/medir-skills.sh, nao scripts/medir-skills.sh" \
     "$(grep -c 'Uso: bash evidence/telemetry/medir-skills.sh' "$SCRIPT")" 1
 
+# ================================================================================================
+echo "== N1..N5: assimetria invertida (artefato e proxy de oportunidade, nunca denominador) =="
+# fixture: uma skill mapeada, zero uso, duas bases de artefato (presente/ausente)
+N="$T/n"; mkdir -p "$N/skills" "$N/proj" "$N/baseA/out" "$N/baseB"
+skillmd "$N/skills/skill-map" "gera relatorio em out/relatorio.md"
+touch "$N/proj/.keep"
+echo '{"skill-map":"out/relatorio.md"}' > "$N/mapa.json"
+echo x > "$N/baseA/out/relatorio.md"
+OUT_NA="$(bash "$SCRIPT" "$N/proj" "$N/skills" "$N/mapa.json" "$N/baseA" 2>&1)"   # artefato PRESENTE
+OUT_NB="$(bash "$SCRIPT" "$N/proj" "$N/skills" "$N/mapa.json" "$N/baseB" 2>&1)"   # artefato AUSENTE
+
+# N1 - declaracao explicita: o instrumento NAO estima oportunidade, e o sinal de disco e PROXY
+chk "N1a: declara explicitamente que NAO estima oportunidade (sum(E_s) nao medido)" \
+    "$(grep -qiE 'oportunidade (NAO|nao) (e )?estimad' <<<"$OUT_NB" && echo sim || echo nao)" sim
+chk "N1b: o sinal de artefato aparece NOMEADO como proxy/testemunha, nao como denominador" \
+    "$(grep -qiE 'proxy|testemunha' <<<"$OUT_NB" && echo sim || echo nao)" sim
+
+# N2 - arvore A-F como CLASSIFICACAO: cada skill cai num caso NOMEADO
+chk "N2a: a skill recebe um caso nomeado CASO <A-F> na base com artefato" \
+    "$(grep -qE 'CASO [A-F]' <<<"$OUT_NA" && echo sim || echo nao)" sim
+chk "N2b: a skill recebe um caso nomeado CASO <A-F> na base sem artefato" \
+    "$(grep -qE 'CASO [A-F]' <<<"$OUT_NB" && echo sim || echo nao)" sim
+
+# N3 - NUCLEO: ausencia de artefato e correlato de nao-uso, nao estimativa de oportunidade.
+# O veredito de depreciacao NAO pode ser funcao do cwd (ARTBASE).
+chk "N3a: base SEM artefato nao produz veredito de depreciacao" \
+    "$(grep -c 'CANDIDATAS A DEPRECIACAO' <<<"$OUT_NB")" 0
+chk "N3b: base COM artefato tampouco produz veredito de depreciacao" \
+    "$(grep -c 'CANDIDATAS A DEPRECIACAO' <<<"$OUT_NA")" 0
+
+# N3c - CONTROLE ANTIVACUIDADE: o proxy ainda INFORMA (muda o caso), so nao decide sozinho.
+CA="$(grep -oE 'CASO [A-F]' <<<"$OUT_NA" | head -1)"
+CB="$(grep -oE 'CASO [A-F]' <<<"$OUT_NB" | head -1)"
+chk "N3c CONTROLE: artefato presente (B, oportunidade testemunhada) != ausente (A, sem informacao)" \
+    "$([ -n "$CA" ] && [ -n "$CB" ] && [ "$CA" != "$CB" ] && echo dif || echo igual)" dif
+
+# N4 - CONTROLE: a classificacao e funcao do USO, nao string fixa
+N4="$T/n4"; mkdir -p "$N4/proj/subagents" "$N4/skills" "$N4/base"
+skillmd "$N4/skills/skill-usada" "descricao de teste"
+echo '{"skill-usada":"out/relatorio.md"}' > "$N4/mapa.json"
+cat > "$N4/proj/subagents/b.jsonl" <<'JSONL'
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Skill","input":{"skill":"skill-usada"}}]}}
+JSONL
+OUT_NU="$(bash "$SCRIPT" "$N4/proj" "$N4/skills" "$N4/mapa.json" "$N4/base" 2>&1)"
+CU="$(grep -oE 'CASO [A-F]' <<<"$OUT_NU" | head -1)"
+chk "N4 CONTROLE: uso>0 cai em caso DIFERENTE de uso=0 (classificacao discrimina por uso)" \
+    "$([ -n "$CU" ] && [ "$CU" != "$CB" ] && echo dif || echo igual)" dif
+
+# N5 - D/E/F exigem dQ (E_U). Nenhum dossie E_U existe: o instrumento tem de dizer isso.
+chk "N5: declara que os casos D/E/F sao NAO DECIDIVEIS sem dQ (E_U ausente)" \
+    "$(grep -qiE '(D/E/F|casos? D).*(NAO DECIDIVEL|nao decidivel|indecidivel)|dQ .*(ausente|nao medid)' <<<"$OUT_NB" \
+       && echo sim || echo nao)" sim
+
 echo
 echo "================ PASS=$P  FAIL=$F ================"
-EXPECTED=23
+EXPECTED=32
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

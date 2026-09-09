@@ -94,7 +94,8 @@ bash install/apply-managed.sh --verify                    # conformidade do esco
 
 # suites - UMA POR VEZ (o lock reprova corrida com exit 3)
 for s in supply-chain document-tools reprodutibilidade managed propriedades \
-         claims concorrencia regressao-gate run; do bash tests/unit/$s.sh || break; done
+         claims concorrencia regressao-gate; do bash tests/unit/$s.sh || break; done
+bash tests/unit/run.sh   # bateria completa de tests/unit/*.sh e *.py, despacho por disco
 bash tests/mutation/run.sh
 bash tests/mutation/contrato.sh
 bash tests/mutation/install.sh

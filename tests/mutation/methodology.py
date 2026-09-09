@@ -5,6 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -107,5 +108,72 @@ for name, target, path, value in MUTANTS:
         killed += 1
         print(f"KILLED {name}")
 
-print(f"KILLED={killed}/{len(MUTANTS)}")
-raise SystemExit(0 if killed == len(MUTANTS) else 1)
+# G107 (issue #51). Os 16 mutantes acima alteram um escalar em policy/protocol; nenhum toca o
+# defeito que G107 nomeia, que vive em PROSA sob execution/skills, no proprio universo de
+# RESOLUCAO do tester. `monta_raiz` simlinka `execution` inteiro (leitura), entao nao ha como
+# reintroduzir o defeito sem escrever no repositorio real. Este bloco isola so
+# `execution/skills` como COPIA gravavel - as demais fontes (`execution/agents`, `docs`,
+# `orchestration`) continuam simlink/copia read-only da arvore real - e reintroduz `/tdd` num
+# arquivo do clone. Segue o precedente do ADR 0032 ("reintroduzido o defeito num clone via
+# TOLLENS_ROOT, a assercao reprova; o clone limpo fica verde").
+def monta_raiz_skills(raw: str) -> Path:
+    root = Path(raw)
+    (root / "orchestration").mkdir()
+    (root / "orchestration/skill-policy.json").write_text(json.dumps(POLICY), encoding="utf-8")
+    (root / "orchestration/evaluation-protocol.json").write_text(json.dumps(PROTOCOL), encoding="utf-8")
+    (root / "orchestration/registry.json").write_text(
+        (ROOT / "orchestration/registry.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "docs").symlink_to(ROOT / "docs", target_is_directory=True)
+    (root / "execution").mkdir()
+    for _sub in sorted((ROOT / "execution").iterdir()):
+        if _sub.name == "skills":
+            shutil.copytree(_sub, root / "execution/skills")
+        else:
+            (root / "execution" / _sub.name).symlink_to(_sub, target_is_directory=True)
+    return root
+
+
+def roda_clone_skills(mutar) -> int:
+    with tempfile.TemporaryDirectory(prefix="tollens-method-skills-") as raw:
+        root = monta_raiz_skills(raw)
+        if mutar is not None:
+            mutar(root)
+        env = os.environ.copy()
+        env["TOLLENS_ROOT"] = str(root)
+        return subprocess.run(
+            [sys.executable, str(TESTER)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+
+
+def _reintroduz_barra_tdd(root: Path) -> None:
+    # Reverte UMA das nove ocorrencias que G107 corrigiu (issue #51):
+    # "o agente `tdd`" -> "/tdd". O token `tdd` continua existindo em `execution/agents`
+    # (simlink para a arvore real), entao a regressao cai exatamente na classe que a nova
+    # assercao existe para pegar: /x que resolve para agente, nao para skill.
+    _alvo = root / "execution/skills/prd-to-issues/SKILL.md"
+    _texto = _alvo.read_text(encoding="utf-8")
+    _texto = _texto.replace("agente `tdd`", "/tdd", 1)
+    _alvo.write_text(_texto, encoding="utf-8")
+
+
+baseline_skills = roda_clone_skills(None)
+if baseline_skills != 0:
+    print(f"BASELINE CLONE-SKILLS VERMELHO (exit={baseline_skills}): copia intacta de "
+          "execution/skills ja reprova antes de qualquer mutacao.")
+    print("Sem baseline verde, 'KILLED' abaixo seria crash e nao assercao - o arnes e VACUO.")
+    raise SystemExit(1)
+print("baseline verde: clone de execution/skills sem mutacao sai 0")
+
+if roda_clone_skills(_reintroduz_barra_tdd) != 0:
+    print("KILLED reintroduz-barra-tdd")
+    killed += 1
+else:
+    print("SURVIVED reintroduz-barra-tdd")
+
+TOTAL_MUTANTES = len(MUTANTS) + 1
+print(f"KILLED={killed}/{TOTAL_MUTANTES}")
+raise SystemExit(0 if killed == TOTAL_MUTANTES else 1)

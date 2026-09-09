@@ -10,7 +10,7 @@ Skill para criar PRDs completos e acionaveis. O PRD eh o ponto de partida do pip
 ## Pipeline Completo (Skills Relacionadas)
 
 ```
-/write-a-prd → /prd-to-plan → /prd-to-issues → /tdd (implementacao)
+/write-a-prd → /prd-to-plan → /prd-to-issues → agente tdd (implementacao)
        ↑                                              ↑
   /grill-me (stress-test)                    a triagem de issue (bugs)
 ```
@@ -131,7 +131,11 @@ Antes de finalizar, avalie:
 
 ### 7. Redigir o PRD
 
-Uma vez com entendimento completo, use o template abaixo. O PRD deve ser submetido como uma **GitHub Issue** usando `gh issue create`.
+Uma vez com entendimento completo, use o template abaixo e grave o resultado como arquivo
+Markdown em `./prds/<slug>.md` (slug derivado do titulo do problema, minusculo, hifenizado),
+espelhando o padrao de saida local de `/prd-to-plan`. Este arquivo eh o artefato final desta
+skill; publicacao como issue remota nao faz parte deste passo e fica a cargo de `/prd-to-issues`,
+quando o operador decidir acionar essa etapa.
 
 <prd-template>
 
@@ -236,7 +240,7 @@ Descricao explicita do que NAO faz parte deste PRD:
 Apos aprovacao deste PRD:
 1. `/prd-to-plan` — criar plano de implementacao por fases (tracer bullets)
 2. `/prd-to-issues` — quebrar em issues independentes no GitHub
-3. `/tdd` — implementar cada issue via ciclos red-green-refactor
+3. o agente `tdd` — implementar cada issue via ciclos red-green-refactor
 4. o agente `revisor-codigo` — revisar antes de merge
 
 ## Notas Adicionais

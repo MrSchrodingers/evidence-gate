@@ -241,3 +241,13 @@ Uma quarta dimensao proposta na sexta auditoria fica registrada e NAO implementa
 `EvidenceValidity`. Um dossie legitimo em `t0` pode deixar de valer em `t1` apos atualizacao de
 runtime ou modelo, e o schema atual nao expressa `evaluated_with` nem status `stale`. Isso e a
 proxima onda, nao esta.
+
+> **ERRATA (ver `docs/adr/0046-evidencia-envelhece-quando-o-ambiente-muda.md`).** O paragrafo
+> acima ficou desatualizado e permaneceu publicado sem correcao por duas ondas. `evaluated_with`
+> NAO ficou para "a proxima onda": entrou na onda 15 (`docs/adr/0035-a-divida-era-de-uma-classe-so.md`,
+> secao "EvidenceValidity: o dossie tem data de validade") e `tests/unit/capability-conformance.py`
+> ja o exige, com mutantes MCAP18/19/20 cobrindo a exigencia, desde entao. O status `stale` como
+> VALOR do vocabulario de `evidence.status` e que era novidade genuina - e a onda 28 (ADR 0046) o
+> entrega. Os tres documentos (este, `docs/adr/0034` e `docs/adr/0035`) afirmavam coisas
+> diferentes sobre o mesmo campo ao mesmo tempo, e nada os confrontava ate agora - a mesma classe
+> que a errata de `docs/adr/0033:213-224` ja registrou uma vez, cometida de novo aqui.

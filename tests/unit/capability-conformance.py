@@ -58,6 +58,7 @@ sejam validas. E oraculo de conformidade, nao de veracidade experimental.
 """
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -180,7 +181,7 @@ def _le_do_git(ref: str):
     # do blob-base e o digest do artefato vinha do HEAD, entao qualquer PR que tocasse o
     # componente invalidava os dossies DA BASE, inflando `d_base` e AFROUXANDO a monotonicidade.
     # Fail-open, na direcao exata que a onda 14 existiu para fechar.
-    leitor.ref = ref
+    leitor.ref = ref  # type: ignore[attr-defined]  # atributo dinamico intencional: a ref viaja com a funcao (ver comentario acima)
     return leitor
 
 
@@ -258,20 +259,92 @@ def _digest_da_policy(leitor=None) -> str | None:
     return h.hexdigest()
 
 
-def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
-    ev = cap.get("evidence") or {}
-    if ev.get("status") != "valid":
-        return False
-    d = ev.get("dossier")
-    if not d:
-        return False
-    bruto = leitor(d)
+# ONDA 28. VOCABULARIO E CHAVES OBRIGATORIAS VEM DA POLICY, NUNCA HARDCODED AQUI - o mesmo
+# criterio de F1/onda 15 e de CC8/onda 27: um portao que carrega o proprio criterio nao prova
+# nada sobre o artefato, so sobre si mesmo.
+_STALENESS = evpolicy.get("staleness") or {}
+EVSTATUS_VOCAB = list(_STALENESS.get("evidence_status_vocabulary") or [])
+AV_REQUIRED_KEYS = list(_STALENESS.get("evaluated_with_required_keys")
+                        or ["runtime", "model", "artifact_digest", "policy_digest"])
+STATUS_FRESH = "fresh"
+
+
+def _le_environment(leitor):
+    """Envelope declarado de runtime/modelo suportados (`orchestration/environment.json`),
+    NA ARVORE DO LEITOR. `None` quando ausente ou ilegivel."""
+    bruto = leitor("orchestration/environment.json")
     if bruto is None:
-        return False
+        return None
     try:
         doc = json.loads(bruto)
     except Exception:
-        return False
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _stale_por_ambiente(av: dict, leitor) -> list[str]:
+    """Motivos pelos quais o ambiente declarado em `av` (`evaluated_with`) esta FORA do
+    envelope suportado. Lista vazia = ambiente conforme. Envelope ausente ou ilegivel entra
+    como motivo (fail-closed): a ausencia do segundo lado da comparacao nao pode virar
+    aprovacao silenciosa - o mesmo principio que `_digest_de`/`_digest_da_policy` aplicam a
+    digest ausente. PELO LEITOR, NUNCA POR `_le_do_disco`: o mesmo achado C5/F2 dos digests -
+    usar o disco do processo para julgar a arvore-BASE e fail-open na direcao exata que a
+    onda 14 existiu para fechar."""
+    env = _le_environment(leitor)
+    if env is None:
+        return ["orchestration/environment.json ausente ou ilegivel - ambiente nao verificavel"]
+    suportado = env.get("supported") or {}
+    motivos = []
+    sup_rt = suportado.get("runtime")
+    sup_rt = sup_rt if isinstance(sup_rt, dict) else {}
+    rt = av.get("runtime")
+    if rt not in sup_rt:
+        motivos.append(f"runtime {rt!r} fora do conjunto suportado {sorted(sup_rt)}")
+    sup_rtv = suportado.get("runtime_version")
+    sup_rtv = sup_rtv if isinstance(sup_rtv, list) else []
+    rtv = av.get("runtime_version")
+    if rtv not in sup_rtv:
+        motivos.append(f"runtime_version {rtv!r} fora do conjunto suportado {sup_rtv}")
+    sup_md = suportado.get("model")
+    sup_md = sup_md if isinstance(sup_md, list) else []
+    md = av.get("model")
+    if md not in sup_md:
+        motivos.append(f"model {md!r} fora do conjunto suportado {sup_md}")
+    return motivos
+
+
+def _upstream_supersession_aberto(cap: dict) -> str | None:
+    """Nota da supersessao ABERTA declarada em `cap['upstream_supersession']`, ou `None` se
+    nao ha supersessao declarada ou ela ja foi marcada `resolved: true`. Gatilho de
+    REAVALIACAO (`evidence-policy.json:staleness.reevaluation_triggers`), nunca de
+    depreciacao: esta funcao e PURA sobre o dict e NUNCA le nem escreve `cap['state']` ou
+    `cap['installed']` - supersessao aberta impede `fresh`, e nao move o lifecycle."""
+    sup = cap.get("upstream_supersession")
+    if not isinstance(sup, dict) or not sup:
+        return None
+    if sup.get("resolved") is True:
+        return None
+    nota = sup.get("by") or sup.get("note") or "supersessao upstream declarada"
+    return f"upstream_supersession aberto: {nota}"
+
+
+def _status_derivado(cap: dict, leitor=_le_do_disco) -> tuple[str, list[str]]:
+    """Status MECANICO do dossie, independente do que `evidence.status` DECLARA: `('absent',
+    [])` sem dossie usavel; `('stale', motivos)` quando qualquer dependencia de
+    `evidence-policy.json:staleness.invalidated_by` nao casa (ou ha supersessao upstream
+    aberta); `('fresh', [])` caso contrario. Quem decide se o dossie e VALIDO como prova de
+    promocao (`dossie_valido`, abaixo) combina isto com o que a governanca DECLAROU."""
+    ev = cap.get("evidence") or {}
+    d = ev.get("dossier")
+    if not d:
+        return "absent", []
+    bruto = leitor(d)
+    if bruto is None:
+        return "absent", []
+    try:
+        doc = json.loads(bruto)
+    except Exception:
+        return "absent", []
     # O dossie tem de cobrir os SETE requisitos que a propria policy declara. Aceitar um
     # dossie que cubra menos seria reintroduzir a lacuna num nivel abaixo.
     #
@@ -281,22 +354,24 @@ def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
     # nomes, `r in doc` vira containment de substring e passava tambem. Uma string nao declara
     # campo nenhum, e o cabecalho promete verificar que o dossie DECLARA os campos.
     if not isinstance(doc, dict):
-        return False
+        return "absent", []
     if not all(r in doc and doc[r] not in (None, "", [], {}) for r in requisitos):
-        return False
+        return "absent", []
 
-    # EVIDENCEVALIDITY (onda 15). Valid(c, t0) NAO implica Valid(c, t1). Um dossie e o registro
-    # de um experimento PASSADO; quando muda aquilo sobre o que ele concluiu, ele deixa de valer
-    # e passa a STALE. Sem isto, "avaliado uma vez" viraria "avaliado para sempre" - e a forma
-    # temporal do mesmo defeito que este repositorio persegue, porque a garantia seguiria escrita
-    # depois de o fenomeno ter mudado.
+    # EVIDENCEVALIDITY (onda 15, estendida onda 28). Valid(c, t0) NAO implica Valid(c, t1). Um
+    # dossie e o registro de um experimento PASSADO; quando muda aquilo sobre o que ele
+    # concluiu, ele deixa de valer e passa a STALE. Sem isto, "avaliado uma vez" viraria
+    # "avaliado para sempre" - a forma temporal do mesmo defeito que este repositorio persegue.
     #
-    # DUAS DEPENDENCIAS SAO CONFERIDAS DE FATO, por digest computado aqui:
+    # DUAS DEPENDENCIAS SAO CONFERIDAS POR DIGEST COMPUTADO AQUI:
     #   artifact_digest  o proprio componente mudou desde a avaliacao
     #   policy_digest    a policy que define o que conta como evidencia mudou
-    # DUAS SAO APENAS DECLARADAS, e a distincao esta em evidence-policy.json:
-    #   runtime, model   um portao nao observa de dentro qual modelo executa a sessao. Exigir o
-    #                    campo torna a dependencia VISIVEL no artefato; nao a torna medida.
+    # DUAS SAO CONFERIDAS CONTRA UM ENVELOPE DECLARADO (onda 28, `orchestration/environment.json`):
+    #   runtime, runtime_version, model   ver `_stale_por_ambiente` - a comparacao e
+    #                    DECLARADO-contra-DECLARADO, nao observacao de runtime real.
+    # `skill_version` e exigido (presenca, `AV_REQUIRED_KEYS`) mas nao comparado contra nada:
+    #   nao ha, neste repositorio, um oraculo do "skill_version atualmente vigente" - exigir o
+    #   campo torna a dependencia VISIVEL no artefato, nao a torna medida.
     #
     # NAO SE APLICA A `executed_suite`. Evidencia por suite nao envelhece pelo mesmo motivo:
     # ela e REPRODUZIDA a cada execucao da CI. Se o componente mudar e a suite continuar
@@ -304,15 +379,35 @@ def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
     # registro; suite e producao. So o registro precisa de data de validade.
     av = doc.get("evaluated_with")
     if not isinstance(av, dict):
-        return False
-    if any(k not in av or not av[k] for k in ("runtime", "model")):
-        return False
+        return "absent", []
+    faltando = [k for k in AV_REQUIRED_KEYS if k not in av or not av[k]]
+    if faltando:
+        return "absent", [f"evaluated_with sem {faltando}"]
+
+    motivos: list[str] = []
     fonte = cap.get("source") or ""
     if av.get("artifact_digest") != _digest_de(fonte, leitor):
-        return False
+        motivos.append("artifact_digest: o componente mudou desde a avaliacao")
     if av.get("policy_digest") != _digest_da_policy(leitor):
+        motivos.append("policy_digest: a policy mudou desde a avaliacao")
+    motivos.extend(_stale_por_ambiente(av, leitor))
+    sup_motivo = _upstream_supersession_aberto(cap)
+    if sup_motivo:
+        motivos.append(sup_motivo)
+    return ("stale" if motivos else "fresh"), motivos
+
+
+def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
+    """Usavel como prova de promocao: a governanca DECLAROU `evidence.status == "fresh"` E a
+    derivacao mecanica CONFIRMA `fresh`. As duas condicoes sao necessarias - a primeira e o
+    compromisso de que a evidencia foi revista e publicada como tal; a segunda e o que impede
+    o compromisso de ser falso (CC9b confere a mesma igualdade para TODA capability, nao so
+    para as promovidas)."""
+    ev = cap.get("evidence") or {}
+    if ev.get("status") != STATUS_FRESH:
         return False
-    return True
+    status, _ = _status_derivado(cap, leitor)
+    return status == STATUS_FRESH
 
 
 promovidas_sem_prova = [n for n, cap in sorted(caps.items())
@@ -486,7 +581,7 @@ def _pagas(cap: dict, leitor) -> set:
             _ger = leitor("scripts/status.sh") or ""
             enumerada = bool(ref) and (
                 ref in _ger
-                or (ref.startswith("tests/mutation/") and ref.endswith(".sh")
+                or (ref.startswith("tests/mutation/") and ref.endswith(".sh")  # type: ignore[union-attr]  # guardado por bool(ref) na linha acima
                     and "tests/mutation/*.sh" in _ger))
             if texto is not None and fonte and fonte in texto and enumerada:
                 out.add(d)
@@ -914,6 +1009,198 @@ check(len(_hits_sinteticos) == 1 and _acusado,
       "controle positivo: o walker acusa um valor sabidamente errado em fragmento sintetico"
       + ("" if (len(_hits_sinteticos) == 1 and _acusado)
          else f" - hits={_hits_sinteticos} acusado={_acusado}"))
+
+# ---------------------------------------------------------------------------------------
+print("== CC8. lifecycle e exposicao ao router sao eixos independentes (ADR 0044) ==")
+# `state` (lifecycle) responde em que fase de avaliacao a capability esta. `exposure` responde o
+# que a GOVERNANCA autoriza o router a fazer com ela - proposicao diferente, ja separada de
+# `installed` (ADR 0033) e de `projection` (onda 22b) pelo mesmo motivo: colapsar eixos faz uma
+# reclassificacao de um deles mudar o outro por acidente.
+#
+# VOCABULARIO E MAPA VEM DA POLICY, NUNCA HARDCODED AQUI - o mesmo criterio de F1/onda 15: um
+# portao que carrega o proprio criterio nao prova nada sobre o artefato, so sobre si mesmo.
+_EXPO = evpolicy.get("runtime_exposure") or {}
+_EXPO_VOCAB = list(_EXPO.get("vocabulary") or [])
+_EXPO_MAPA = _EXPO.get("allowed_by_lifecycle") or {}
+_EXPO_EA_CAMPOS = list(_EXPO.get("experimental_auto_requires") or [])
+_EXPO_EA_PASTAS = list(_EXPO.get("eval_id_resolves_under") or [])
+_EXPO_ESCOPO = _EXPO.get("scope") or "skill"
+
+
+def _dmi_do_skill(source: str | None) -> bool | None:
+    """`disable-model-invocation` do frontmatter de `source/SKILL.md`. `None` quando a fonte
+    esta ausente ou o arquivo nao tem frontmatter legivel - indeterminado, nao `False`: um
+    tombstone sem `source` nao pode ser lido como 'skill selecionavel pelo modelo'."""
+    if not source:
+        return None
+    caminho = ROOT / source / "SKILL.md"
+    if not caminho.is_file():
+        return None
+    partes = caminho.read_text(encoding="utf-8").split("---")
+    if len(partes) < 3:
+        return None
+    fm = yaml.safe_load(partes[1]) or {}
+    if not isinstance(fm, dict):
+        return None
+    return fm.get("disable-model-invocation") is True
+
+
+def _eval_id_resolve(eval_id, pastas: list[str]) -> bool:
+    """`eval_id` e string decorativa ate resolver para um registro que existe - o mesmo
+    principio de `source_ref`/`resolution_ref` do ADR 0038 (tests/unit/governance-links.py)."""
+    if not eval_id or not isinstance(eval_id, str):
+        return False
+    for rel in pastas:
+        base = ROOT / rel
+        if not base.is_dir():
+            continue
+        if any(p.is_file() and (p.stem == eval_id or p.name.startswith(f"{eval_id}-")
+                                 or p.name.startswith(f"{eval_id}."))
+               for p in base.iterdir()):
+            return True
+    return False
+
+
+def _exposure_falhas(nome: str, cap: dict) -> list[str]:
+    """Falhas de exposicao para UMA capability. Funcao PURA sobre o dict - o mesmo comparador
+    julga capabilities reais do registry e fragmentos sinteticos em memoria (padrao de CC7),
+    para que as invariantes cuja populacao real e ZERO (quarantine/promoted/rejected) nao
+    passem vazias."""
+    falhas: list[str] = []
+    exp = cap.get("exposure")
+    if not isinstance(exp, dict) or "level" not in exp:
+        falhas.append(f"{nome}: sem bloco `exposure.level`")
+        return falhas
+    nivel = exp["level"]
+    if _EXPO_VOCAB and nivel not in _EXPO_VOCAB:
+        falhas.append(f"{nome}: exposure {nivel!r} fora do vocabulario {_EXPO_VOCAB}")
+        return falhas
+    estado = cap.get("state")
+    permitidos = set(_EXPO_MAPA.get(estado) or [])
+    if nivel not in permitidos:
+        falhas.append(f"{nome}: lifecycle {estado!r} nao admite exposure {nivel!r}")
+    # O SEGUNDO LADO DO MESMO EIXO: `off` e amarrado a `installed`, nao ao lifecycle - e o que
+    # liga o eixo novo ao que ja existe (CC3) em vez de criar um paralelo desconectado.
+    instalado = bool(cap.get("installed"))
+    if nivel == "off" and instalado:
+        falhas.append(f"{nome}: exposure off mas installed=true")
+    if nivel != "off" and not instalado:
+        falhas.append(f"{nome}: exposure {nivel!r} mas installed=false")
+    # COERENCIA COM O MECANISMO, na direcao OPOSTA da onda 27: la o esperado vinha do
+    # frontmatter e o obtido de `activation`; aqui o eixo e outro (`exposure`, nao `activation`)
+    # e a mesma independencia de arquivos-fonte se aplica: SKILL.md de um lado, registry.json
+    # do outro.
+    dmi = _dmi_do_skill(cap.get("source"))
+    if dmi is True and nivel in {"auto", "experimental_auto"}:
+        falhas.append(f"{nome}: exposure {nivel!r} mas o frontmatter retira do routing "
+                      "(disable-model-invocation: true)")
+    if dmi is False and nivel == "manual":
+        falhas.append(f"{nome}: exposure manual mas o frontmatter permite selecao pelo modelo")
+    if nivel == "experimental_auto":
+        faltando = sorted(k for k in _EXPO_EA_CAMPOS if not exp.get(k))
+        if faltando:
+            falhas.append(f"{nome}: experimental_auto sem {faltando}")
+            return falhas
+        venc_bruto = exp.get("expires_at")
+        try:
+            venc = datetime.date.fromisoformat(venc_bruto)
+        except (TypeError, ValueError):
+            falhas.append(f"{nome}: expires_at nao e data ISO: {venc_bruto!r}")
+        else:
+            if venc <= datetime.datetime.now(tz=datetime.UTC).date():
+                falhas.append(f"{nome}: experimental_auto VENCIDA em {venc.isoformat()}")
+        if not _eval_id_resolve(exp.get("eval_id"), _EXPO_EA_PASTAS):
+            falhas.append(f"{nome}: eval_id {exp.get('eval_id')!r} nao resolve sob {_EXPO_EA_PASTAS}")
+    return falhas
+
+
+_alvos_expo = {n: c for n, c in caps.items() if c.get("kind") == _EXPO_ESCOPO}
+check(len(_alvos_expo) >= 5, f"ha {_EXPO_ESCOPO} a conferir por exposicao (medido: {len(_alvos_expo)})")
+
+_falhas_expo = [f for n, c in sorted(_alvos_expo.items()) for f in _exposure_falhas(n, c)]
+check(not _falhas_expo,
+      f"toda capability `{_EXPO_ESCOPO}` declara exposure conforme ao lifecycle, a `installed` e ao frontmatter"
+      + ("" if not _falhas_expo else f" - {_falhas_expo}"))
+
+# ANTIVACUIDADE + CONTROLE SINTETICO EM MEMORIA, no padrao de CC7 (linhas 903-917 acima). No
+# registry real, `quarantine`, `promoted` e `rejected` tem populacao ZERO: sem fixture, tres das
+# cinco linhas de `allowed_by_lifecycle` nunca seriam exercitadas, e "verde" nao distinguiria
+# "conforme" de "nao ha o que conferir".
+_frag_negativo = {"kind": "skill", "state": "quarantine", "installed": False,
+                   "exposure": {"level": "auto"}}
+_frag_positivo = {"kind": "skill", "source": "execution/skills/depreciar", "state": "candidate",
+                   "installed": True, "exposure": {"level": "manual"}}
+_falhas_negativo = _exposure_falhas("__cc8_negativo__", _frag_negativo)
+_falhas_positivo = _exposure_falhas("__cc8_positivo__", _frag_positivo)
+check(bool(_falhas_negativo),
+      "controle negativo: fragmento sintetico quarantine+auto e acusado"
+      + ("" if _falhas_negativo else " - nao foi acusado, o comparador estaria vacuo"))
+check(not _falhas_positivo,
+      "controle positivo: fragmento sintetico conforme (candidate+manual) nao e acusado"
+      + ("" if not _falhas_positivo else f" - {_falhas_positivo}"))
+
+# ---------------------------------------------------------------------------------------
+print("== CC9. evidencia envelhece quando runtime, modelo, artefato ou policy mudam (ADR 0046) ==")
+# `evidence.status` (declarado no registry) e o status DERIVADO por `_status_derivado` (digest +
+# ambiente + supersessao) sao duas coisas diferentes que tem de COINCIDIR, no mesmo padrao ja
+# aplicado a `measured_size_bytes` em CC7: declarar um valor que a derivacao nao sustenta e a
+# mesma classe de defeito, so que no campo `status` em vez de num inteiro.
+check(len(EVSTATUS_VOCAB) >= 2,
+      f"a policy declara vocabulario fechado de evidence.status (medido: {EVSTATUS_VOCAB})")
+
+_status_fora_vocab = [f"{n}={ (cap.get('evidence') or {}).get('status')!r}"
+                      for n, cap in sorted(caps.items())
+                      if (cap.get("evidence") or {}).get("status") not in EVSTATUS_VOCAB]
+check(bool(EVSTATUS_VOCAB) and not _status_fora_vocab,
+      f"todo evidence.status pertence ao vocabulario fechado {EVSTATUS_VOCAB}"
+      + ("" if not _status_fora_vocab else f" - fora do vocabulario: {_status_fora_vocab}"))
+
+# DECLARADO == DERIVADO, para toda capability - nao so para as promovidas que CC2 ja julga.
+# Uma capability em `candidate` que declara `fresh` sem que a mecanica sustente e a MESMA
+# forma de claim falsa que CC4 ja reprova para `dimensions..status: paid` sem lastro.
+_divergentes_status = []
+_relatorio_invalidated_by: dict[str, list[str]] = {}
+for _n, _cap in sorted(caps.items()):
+    _declarado = (_cap.get("evidence") or {}).get("status")
+    _derivado, _motivos = _status_derivado(_cap, _le_do_disco)
+    _relatorio_invalidated_by[_n] = _motivos
+    if _declarado != _derivado:
+        _divergentes_status.append(
+            f"{_n}: declarado={_declarado!r} derivado={_derivado!r}"
+            + (f" ({'; '.join(_motivos)})" if _motivos else ""))
+check(not _divergentes_status,
+      "evidence.status declarado bate com o status derivado mecanicamente (digest + ambiente + "
+      "supersessao)"
+      + ("" if not _divergentes_status else f" - divergentes: {_divergentes_status}"))
+
+# `invalidated_by` DERIVADO, IMPRESSO por capability - nunca guardado (mesmo principio de CC7:
+# numero de aparencia medida e derivado, nao guardado).
+for _n in sorted(_relatorio_invalidated_by):
+    if _relatorio_invalidated_by[_n]:
+        print(f"        invalidated_by[{_n}] = {_relatorio_invalidated_by[_n]}")
+
+# CONTROLE: upstream_supersession ABERTO e detectado; RESOLVIDO nao bloqueia. Funcao PURA sobre
+# fragmento sintetico, no padrao de CC7/CC8 - a populacao real do registry nao declara nenhuma
+# supersessao hoje, e sem fixture as duas branches nunca seriam exercitadas.
+_sup_aberta = {"upstream_supersession": {"by": "runtime nativo absorveu a funcao", "resolved": False}}
+_sup_resolvida = {"upstream_supersession": {"by": "runtime nativo absorveu a funcao", "resolved": True}}
+_sup_ausente: dict = {}
+check(_upstream_supersession_aberto(_sup_aberta) is not None,
+      "controle positivo: upstream_supersession aberto e detectado")
+check(_upstream_supersession_aberto(_sup_resolvida) is None,
+      "controle: upstream_supersession com resolved=true nao bloqueia frescor")
+check(_upstream_supersession_aberto(_sup_ausente) is None,
+      "controle: ausencia de upstream_supersession nao bloqueia frescor (campo e OPCIONAL)")
+
+# upstream_supersession e gatilho de REAVALIACAO, nunca de depreciacao: a mesma funcao que
+# calcula o motivo NUNCA le nem escreve `state`/`installed` - a prova e que o fragmento
+# sintetico, com `state` presente, sai do calculo intocado.
+_frag_estado = {"kind": "skill", "state": "promoted", "installed": True,
+               "upstream_supersession": {"by": "x", "resolved": False}}
+_antes_estado = (_frag_estado.get("state"), _frag_estado.get("installed"))
+_upstream_supersession_aberto(_frag_estado)
+check((_frag_estado.get("state"), _frag_estado.get("installed")) == _antes_estado,
+      "controle: avaliar upstream_supersession nao move `state` nem `installed` da capability")
 
 failed = sum(not ok for ok, _ in checks)
 print(f"\nTOTAL={len(checks)} FAIL={failed}")

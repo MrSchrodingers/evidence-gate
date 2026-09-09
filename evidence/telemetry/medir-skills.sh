@@ -26,6 +26,17 @@
 #       ZERO no canal 1 POR DESENHO - um modelo=0 ali nao e evidencia de roteamento quebrado e
 #       precisa aparecer marcado como tal, nao como qualquer outro zero.
 #
+# TERCEIRO DEFEITO, ASSIMETRIA INVERTIDA (achado independente do (c), mesma classe): o sinal
+# de artefato em disco e um PROXY DE OPORTUNIDADE, nao um denominador - e as duas pontas da
+# assimetria estavam trocadas. Artefato PRESENTE e testemunha de que >=1 tarefa elegivel
+# ocorreu (informa); artefato AUSENTE e so ausencia de evidencia (NAO informa o oposto). A
+# versao anterior convertia ausencia em "denominador estimado" e dali em "CANDIDATAS A
+# DEPRECIACAO" - ausencia de evidencia virando evidencia de ausencia, com o veredito
+# dependente do cwd (ARTBASE default = $PWD). Correcao: classificacao A-F por skill (CASO A =
+# sem informacao, CASO B = falha de roteamento e NUNCA depreciar, CASO C = uso>0 pendente de
+# rotulo de elegibilidade, D/E/F = nao decidiveis sem dQ/E_U). Nenhum caso produz depreciacao
+# a partir de ausencia de artefato.
+#
 # Uso: bash evidence/telemetry/medir-skills.sh [dir-de-projetos] [dir-de-skills] [mapa-artefatos] [base-artefatos]
 set -uo pipefail
 PROJ="${1:-$HOME/.claude/projects}"
@@ -126,9 +137,14 @@ except Exception:
 
 def artefato(nome):
     """Ressalva (c) como codigo: existe no disco o que a skill declara produzir?
-    Retorna None se a skill nao esta mapeada (sem denominador, sem veredito), o Path do
-    primeiro achado se o artefato existe, ou False se mapeada e ausente (denominador
-    estimado: procurou e nao achou)."""
+    O retorno NAO E um denominador de oportunidade - sum(E_s) permanece nao medido. E um
+    PROXY/TESTEMUNHA ASSIMETRICO: presenca TESTEMUNHA que >=1 tarefa elegivel ocorreu
+    (informa); ausencia NAO testemunha o oposto (pode ser zero oportunidade real ou
+    oportunidade nao aproveitada - as duas ficam indistinguiveis aqui, de proposito, para nao
+    fabricar precisao que a medicao nao tem).
+    Retorna None se a skill nao esta mapeada (proxy indisponivel), o Path do primeiro achado
+    se o artefato existe (testemunha presente), ou False se mapeada e ausente (testemunha
+    ausente - NAO EQUIVALE a zero oportunidade)."""
     padrao = artefatos.get(nome)
     if not padrao:
         return None
@@ -137,7 +153,13 @@ def artefato(nome):
 
 frac_sub = f"{round(100 * n_sub / n_transcripts)}%" if n_transcripts else "0%"
 print(f"transcripts: {n_transcripts} total = {n_main} principais + {n_sub} de subagente ({frac_sub})")
-print(f"skills instaladas: {len(instaladas)}\n")
+print(f"skills instaladas: {len(instaladas)}")
+print(f"base de artefato em uso (ARTBASE): {artbase}")
+print("OPORTUNIDADE: sum(E_s) nao e medido por este instrumento; oportunidade nao e estimada; "
+      "Recall_s e Precision_s de selecao (orchestration/evaluation-protocol.json) nao sao "
+      "computados aqui.")
+print("PROXY DE OPORTUNIDADE: o artefato em disco e testemunha de que >=1 tarefa elegivel "
+      "ocorreu quando presente; ausencia NAO e testemunha do oposto (nao informa).\n")
 
 hdr = (f"{'skill':32s} {'modelo':>7s} {'modelo(sub)':>12s} {'cmd':>5s} {'mencao':>7s} "
        f"{'total':>6s} {'sessoes':>8s} {'custo B':>8s}")
@@ -151,7 +173,6 @@ for s in instaladas:
     linhas.append((tot, s, tm, ts, c, me, len(sess[s]), custo(s)))
 linhas.sort(reverse=True)
 
-zero_uso = []
 for tot, s, tm, ts, c, me, ns, cb in linhas:
     nota = ''
     if tot == 0 and invocacao_por_modelo_desabilitada(s):
@@ -159,39 +180,44 @@ for tot, s, tm, ts, c, me, ns, cb in linhas:
     elif tot == 0:
         nota = '  <- ZERO USO'
     print(f"{s:32s} {tm:>7} {ts:>12} {c:>5} {me:>7} {tot:>6} {ns:>8} {cb:>8}{nota}")
-    if tot == 0:
-        zero_uso.append((s, cb))
 
 print()
-if not zero_uso:
-    print("nenhuma skill com zero uso.")
-else:
-    candidatas = []
-    for s, cb in zero_uso:
+print("CLASSIFICACAO A-F (uma linha por skill; nenhum caso abaixo produz depreciacao a partir")
+print("de ausencia de artefato):")
+casos = collections.Counter()
+for tot, s, tm, ts, c, me, ns, cb in linhas:
+    if tot > 0:
+        caso, rotulo = 'C', 'PENDENTE'
+        detalhe = ("uso>0; TriggerPrecision/TriggerRecall exigem rotulo de elegibilidade por "
+                   "invocacao (disparo elegivel vs. disparo total), inexistente -> BLOQUEADO "
+                   "POR: rotulo de elegibilidade")
+    else:
         a = artefato(s)
         if a is None:
-            print(f"  {s}: ROUTING/OPPORTUNITY UNRESOLVED - sem denominador (artefato nao "
-                  f"mapeado em {artmap_path.name}, oportunidade de uso desconhecida)")
+            caso, rotulo = 'A', 'SEM INFORMACAO'
+            detalhe = (f"sem mapeamento em {artmap_path.name} (antigo ROUTING/OPPORTUNITY "
+                       f"UNRESOLVED) - proxy indisponivel, oportunidade desconhecida")
         elif a is False:
-            print(f"  {s}: artefato: ausente ({artefatos[s]}) -> denominador estimado, zero "
-                  f"uso E zero artefato")
-            candidatas.append((s, cb))
+            caso, rotulo = 'A', 'SEM INFORMACAO'
+            detalhe = (f"artefato mapeado ausente ({artefatos[s]}) - testemunha ausente, NAO "
+                       f"equivale a zero oportunidade")
         else:
-            print(f"  {s}: artefato: encontrado {a} -> uso possivel fora do canal medido "
-                  f"(rebaixada de 'sem uso', NAO e candidata)")
-    print()
-    if candidatas:
-        total_b = sum(c for _, c in candidatas)
-        print(f"CANDIDATAS A DEPRECIACAO: {len(candidatas)} skills, {total_b} B de descricao por sessao")
-        for s, c in candidatas:
-            print(f"  {s} ({c} B)")
-        print()
-        print("ANTES DE ARQUIVAR, verifique - zero uso com denominador estimado ainda nao e")
-        print("prova definitiva de inutilidade:")
-        print("  (a) a skill e nova? Nao houve tempo de uso.")
-        print("  (b) o gatilho da `description` esta errado? Ela nunca dispara mesmo sendo util.")
-        print("  Depreciar por (b) e jogar fora capacidade por defeito de roteamento.")
-    else:
-        print("SEM CANDIDATA A DEPRECIACAO: toda skill de zero uso ficou ROUTING/OPPORTUNITY "
-              "UNRESOLVED ou teve artefato encontrado no disco.")
+            caso, rotulo = 'B', 'ROUTING FAILURE'
+            detalhe = f"artefato encontrado em disco: {a} - testemunha de oportunidade"
+    casos[caso] += 1
+    print(f"  {s}: {detalhe} -> CASO {caso}: {rotulo}")
+
+print()
+print(f"CASO B (ROUTING FAILURE, NAO depreciar): {casos['B']} skill(s). Antes de arquivar, a")
+print("testemunha de oportunidade presente ainda nao e prova definitiva de inutilidade:")
+print("  (a) a skill e nova? Nao houve tempo de uso.")
+print("  (b) o gatilho da `description` esta errado? Ela nunca dispara mesmo sendo util.")
+print("  Depreciar por (b) e jogar fora capacidade por defeito de roteamento.")
+print()
+print("CASOS D/E/F: NAO DECIDIVEIS - dQ (UtilidadeMarginal = Q_com - Q_sem, dimensao E_U) "
+      "ausente. Fato medido: E_U=absent em 8/8 skills vivas do registry (defesa-de-tese e "
+      "tombstone deprecated, fora da contagem).")
+print()
+print("NENHUM CASO ACIMA GERA DEPRECIACAO A PARTIR DE AUSENCIA DE ARTEFATO: ausencia de "
+      "testemunha (CASO A) e ausencia de evidencia, nao evidencia de ausencia.")
 PY

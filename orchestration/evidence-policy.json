@@ -129,7 +129,15 @@
       "runtime",
       "model"
     ],
-    "limit": "Um portao nao consegue observar de dentro qual modelo ou runtime executa a sessao. `runtime` e `model` sao portanto campos OBRIGATORIOS no dossie e nao conferidos contra nada: exigi-los torna a dependencia VISIVEL no artefato, nao a torna medida. Uma versao anterior desta linha dizia que eles eram 'conferidos contra orchestration/environment.json' - arquivo que nunca existiu. Mecanismo declarado e ausente e exatamente o defeito que esta policy existe para tornar caro; a linha foi corrigida em vez de o arquivo ser inventado. ONDA 17: o mesmo limite vale para ATIVACAO. Nada aqui observa que o runtime carregou o documento ou disparou o hook - ver `dimensions_candidatas.E_A`."
+    "limit": "Um portao nao consegue observar de dentro qual modelo ou runtime executa a sessao. `runtime` e `model` sao portanto campos OBRIGATORIOS no dossie. Uma versao anterior desta linha dizia que eles eram 'conferidos contra orchestration/environment.json' - arquivo que nunca existiu -, e a correcao seguinte trocou essa frase por 'nao conferidos contra nada'. ERRATA (ver ADR 0046): a segunda frase tambem deixou de valer. `orchestration/environment.json` agora EXISTE e declara o envelope `supported` de runtime/runtime_version/model; o portao confere `evaluated_with.runtime`, `.runtime_version` e `.model` contra esse envelope, e o resultado alimenta `evidence.status` (`fresh`/`stale`). O campo continua listado em `declared_only`, nao em `mechanically_checked`, porque a natureza da comparacao nao mudou de categoria: `mechanically_checked` compara contra um DIGEST computado sobre bytes reais; isto compara uma declaracao (o dossie) contra OUTRA declaracao (o envelope) - o mesmo PR pode escrever os dois lados. E estritamente mais que a ausencia de comparacao que valia ate aqui, e nao e observacao de runtime. ONDA 17: o mesmo limite vale para ATIVACAO. Nada aqui observa que o runtime carregou o documento ou disparou o hook - ver `dimensions_candidatas.E_A`.",
+    "evidence_status_vocabulary": ["fresh", "stale", "absent"],
+    "evaluated_with_required_keys": ["runtime", "runtime_version", "model", "skill_version", "artifact_digest", "policy_digest"],
+    "reevaluation_triggers": {
+      "_comment": "Gatilhos que pedem REAVALIACAO da capability, distintos de `invalidated_by` (que pede reavaliacao do DOSSIE, por mudanca no que foi avaliado). Um gatilho de reavaliacao e um evento externo que sugere revisitar se a capability ainda se justifica - nao um veredito automatico sobre ela.",
+      "upstream_supersession": "o runtime nativo (ou o modelo) pode ter absorvido a funcao que a capability provia. Isto e gatilho de REAVALIACAO, nunca de depreciacao automatica: uma capability suplantada pode continuar correta e util, e so quem avalia decide se ela muda de estado. Declarado por capability em `orchestration/registry.json` como campo opcional `upstream_supersession`; enquanto aberto (sem `resolved: true`), impede `evidence.status` de derivar `fresh` - nao move `state` nem `installed`."
+    },
+    "stale_is_not_deprecated": true,
+    "stale_is_not_deprecated_reason": "`stale` e propriedade da PROVA: o dossie envelheceu porque o artefato, a policy ou o ambiente declarado mudaram desde a avaliacao. `deprecated` e propriedade do CICLO DE VIDA: a governanca decidiu retirar a capability. Uma capability `stale` continua no seu `state` (candidate/promoted), continua `installed` e continua utilizavel - so a evidencia que a sustenta deixou de valer, e ela volta a `fresh` com nova avaliacao, sem passar por retirada. Colapsar os dois faria toda mudanca de runtime ou modelo do ambiente desinstalar capabilities da noite para o dia, sem decisao humana alguma - o oposto do que este bloco existe para permitir."
   },
   "dimensions_candidatas": {
     "_comment": "Dimensoes que auditoria externa argumentou faltarem ao vetor e que NAO estao implementadas. Ficam aqui declaradas para que a ausencia seja visivel no artefato, e nao para dar a impressao de que sao verificadas.",
@@ -140,5 +148,22 @@
       "status": "NAO IMPLEMENTADA - exige oraculo de runtime que este repositorio nao tem",
       "blocked_by": "a sonda de eventos de runtime esta NAO VERIFICADA desde a onda 13"
     }
+  },
+  "runtime_exposure": {
+    "_comment": "ONDA 28 (ADR 0044). Lifecycle (`orchestration/skill-policy.json:lifecycle.states`) e exposicao ao router sao eixos INDEPENDENTES, no mesmo padrao ja aplicado a `state` x `installed` (ADR 0033) e a `projection` (onda 22b). `state` responde 'em que fase de avaliacao a capability esta'; `exposure` responde 'o que a governanca AUTORIZA o router a fazer com ela'. Nenhum dos dois observa o que o runtime de fato fez - essa e a dimensao candidata E_A, declarada acima e permanece NAO IMPLEMENTADA.",
+    "scope": "skill",
+    "why": "Liga-se a `dimensions_candidatas.E_A`: `experimental_auto` e a forma de autorizar selecao automatica pelo router POR PRAZO, enquanto a ativacao de fato permanece sem oraculo. Escopo restrito a `kind: skill` nesta onda - agente e delegado pelo orquestrador e hook dispara por evento; modelar exposicao para eles fica para quando o padrao provar valor aqui (mesma postura do ADR 0036 com G7).",
+    "vocabulary": ["off", "manual", "experimental_auto", "auto"],
+    "allowed_by_lifecycle": {
+      "_comment": "As cinco invariantes L->X. `off` e permitido em todo estado porque e amarrado a `installed=false` (ver `off <=> installed==false` no portao), nao ao lifecycle. `quarantine`, `deprecated` e `rejected` so admitem `off` porque `tests/unit/capability-conformance.py` (CC3) ja reprova essas tres instaladas - a mesma condicao, olhada pelo eixo novo. As duas restricoes GENUINAMENTE novas: `candidate` nao admite `auto`, `promoted` nao admite `experimental_auto`.",
+      "quarantine": ["off"],
+      "candidate": ["off", "manual", "experimental_auto"],
+      "promoted": ["off", "manual", "auto"],
+      "deprecated": ["off"],
+      "rejected": ["off"]
+    },
+    "experimental_auto_requires": ["eval_id", "runtime", "model", "started_at", "expires_at"],
+    "eval_id_resolves_under": ["evidence/experiments", "evidence/claims"],
+    "limit": "Vocabulario e mapa declaram o que a GOVERNANCA autoriza. Nenhum campo aqui, nem `runtime`/`model` declarados no bloco `exposure` de uma capability, e conferido contra o runtime que de fato executa a sessao - o mesmo limite ja assumido em `staleness.limit` para dossie de skill. `expires_at` vencido reprova por PASSAGEM DE TEMPO, sem mudanca de codigo: efeito pretendido, nao falha de manutencao."
   }
 }

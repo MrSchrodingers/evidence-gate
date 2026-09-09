@@ -59,6 +59,48 @@ agree with each other. This does **not measure E_A**: it does not observe whethe
 actually routed to, or away from, a Skill. Reading this as proof of activation would repeat the
 ADR 0036 defect (G6a) — representation of the mechanism is not the phenomenon.
 
+### G106 (issue #50) — effect is a dimension independent of activation, and now has to be declared
+
+The G102 fix closed `activation.registry != frontmatter`, but said nothing about WHAT a Skill
+does. `write-a-prd` published `gh issue create` in its body — a remote write — while
+`activation.model_invocable_exceptions` justified it with "local and reversible effect", never
+checked by any executable. The same configuration (consistent activation,
+`model_invocable_exceptions` with a non-empty `reason`) was satisfied by any "contextual + any
+body" pair, including one containing `gh issue create`: `PolicyDeclared` without
+`PolicyEnforced`, now on the EFFECT dimension instead of the activation one.
+
+The fix:
+
+1. `skill-policy.json` gains an `effects` block — a sibling of `activation`, because it is a
+   different dimension — with `vocabulary` (closed enum `["pure", "local-write", "remote-write",
+   "destructive"]`) and `by_skill` (skill → effect map, one entry per directory under
+   `execution/skills/`).
+2. The new invariant: `effect in {remote-write, destructive} => activation != contextual`,
+   checked with the activation side coming from the FRONTMATTER on disk (not from the policy) —
+   two independent files, the same pattern the G102 assertion already uses.
+3. Syntactic detectors (`gh issue create`, `gh pr create`, `gh api`, `git push`, `curl -X
+   POST|PUT|PATCH|DELETE`, `http(x).post|put|patch|delete(`, `aws s3 cp`) enter as an
+   INCONSISTENCY CONTROL, never as the definition of the class: matching a pattern with a
+   declared effect BELOW `remote-write` fails. The precise reading of the criterion is "below
+   `remote-write`", not "declared `pure`" — `gh issue create` in a `local-write` skill is
+   equally a remote write that the local effect does not cover.
+4. The ASYMMETRY, which has to survive any future extension: the ABSENCE of any syntactic
+   pattern NEVER promotes a skill to `pure`. Absence of a string is absence of syntactic
+   evidence, not evidence of absence of effect. Only the human declaration in `by_skill` defines
+   the class; the detector can only aggravate it.
+5. `write-a-prd` was fixed via the path the issue prefers: drafting the PRD now saves it locally
+   (`./prds/<slug>.md`, mirroring `/prd-to-plan`), and the remote publish (`gh issue create`) was
+   moved to `/prd-to-issues` (already manual-only). `write-a-prd` remains `contextual` — it
+   stopped being false because the effect stopped being remote, not because the check was
+   weakened.
+
+DECLARED LIMIT, and it is exactly what issue #50 already named: a mutant that only dies because
+of the NAME ("write-a-prd") or the LITERAL ("gh issue create") would prove the repro, not the
+predicate. The mutation harness registers a fictitious skill with a different name and a
+different remote-write form (`publicar-relatorio`, `curl -X POST`), consistent on every other
+dimension, and checks that it dies by the MESSAGE of the inconsistency block — not merely by
+exit code.
+
 ## E_A — activation evaluation
 
 For model-invocable Skills, measure separately:

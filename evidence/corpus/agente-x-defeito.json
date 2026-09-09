@@ -1994,6 +1994,20 @@
       "source_ref": "orchestration/registry.json",
       "resolution_ref": "tests/unit/capability-conformance.py",
       "resolution_note": "fecha a instancia unica desta classe (sweep TOTAL=1 por grep de `measured_` no registry). NAO fecha `orchestration/registry.json:correction_round_cap` (vizinho de mesma natureza epistemica - limite declarado sem executor que o leia, PolicyDeclared) nem cria schema/allowlist para o registry (CC1 exige campos obrigatorios, nao proibe extras) - nenhum dos dois bloqueia G104 nem compartilha a causa raiz; registrado, nao corrigido nesta rodada."
+    },
+    {
+      "finding_id": "G106",
+      "wave": 28,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "correcao delegada do achado G106 (issue #50)",
+      "class": "consistencia-entre-declaracoes-de-ativacao-tratada-como-seguranca-de-efeito",
+      "defect": "tests/unit/skill-invocation-policy.sh (G102) modela UMA relacao - registry.activation bate com o frontmatter `disable-model-invocation` - e nenhuma sobre EFEITO. `write-a-prd` tinha as duas fontes de ativacao coerentes (`contextual`) e publicava `gh issue create` no corpo (escrita remota), com a `reason` da excecao em `model_invocable_exceptions` afirmando 'efeito local e reversivel' - prosa nunca conferida por executavel algum. `remote-write` nao era dado em lugar nenhum do repositorio: nem campo, nem vocabulario, nem executavel que o lesse. A invariante disponivel era satisfeita por qualquer par consistente de ativacao, inclusive `contextual` + corpo com escrita remota",
+      "measured": "RED: apos acrescentar os blocos (a)/(b)/(c) a tests/unit/skill-invocation-policy.sh (efeito declarado fail-closed, invariante `effect in {remote-write,destructive} => activation != contextual` com o lado de ativacao vindo do frontmatter, e controle sintatico de inconsistencia) SEM tocar em skill-policy.json nem em write-a-prd, a suite reprovou contra a arvore atual: PASS=26 FAIL=19, exit 1 - 8 skills sem `effects.by_skill` (bloco a) e write-a-prd/prd-to-issues acusadas no bloco (c) por padrao de escrita remota sem efeito declarado. GREEN: apos `skill-policy.json` ganhar o bloco `effects` (vocabulario fechado e `by_skill` para as 8 skills) e `write-a-prd/SKILL.md` passar a gravar o PRD em `./prds/<slug>.md` em vez de `gh issue create`, a mesma execucao saiu PASS=45 FAIL=0, exit 0 (EXPECTED atualizado de 26 para 45, valor medido, nao digitado). MUTACAO: tests/mutation/skill-invocation-policy.sh ganhou M4 (skill ficticia `publicar-relatorio`, forma de escrita remota DIFERENTE - `curl -X POST` -, declarada `pure`, `contextual`, consistente em registry/excecao/reason), M5 (skill ficticia `sincronizar-crm`, declarada `remote-write`, `contextual`, corpo SEM string reconhecivel) e M6 (regressao: `gh issue create` reinserido no corpo de write-a-prd, agora `local-write`); os 6 mutantes (M1-M6) morreram pela MENSAGEM certa (conferida por grep na saida, nao so `rc!=0`): M4 pelo bloco (c) ('corpo com padrao de escrita remota exige efeito >= remote-write: publicar-relatorio'), M5 pelo bloco (b) ('invariante efeito remoto => activation!=contextual: sincronizar-crm'), M6 pelo bloco (c) sobre write-a-prd; EXPECTED_MUTANTS atualizado de 3 para 6. CONTRA-PROVA DE GENERALIZACAO (fora do repositorio, snapshot de HEAD via `git archive`): a MESMA skill ficticia `publicar-relatorio` (curl -X POST, contextual, exception com reason), consistente em toda dimensao que a suite ANTERIOR a este achado conferia, rodada contra o oraculo PRE-correcao produziu PASS=29 FAIL=0 - nenhuma assercao acusou a escrita remota; o exit 1 observado veio de um guard numerico nao relacionado (`CONTAGEM INESPERADA: PASS=29 esperado=26`), nao de deteccao de efeito. Preparar o mesmo mutante pela metade (so o arquivo, sem entrada em registry.json e sem excecao com reason) contra a suite JA CORRIGIDA morre por 3 motivos ERRADOS ('efeito declarado ... got=nao', que e o correto, mas TAMBEM 'activation ... got=AUSENTE' e 'excecao ... got=nao' se a preparacao for incompleta) - por isso o M4 definitivo prepara TODAS as outras dimensoes e a verificacao confere a mensagem do bloco (c) especificamente",
+      "source_ref": "orchestration/skill-policy.json",
+      "resolution_ref": "tests/unit/skill-invocation-policy.sh",
+      "resolution_note": "fecha `PolicyDeclared != PolicyEnforced` na dimensao de EFEITO (write-a-prd deixou de mentir sobre o proprio efeito, e a classe - nao so a instancia - passa a ser fail-closed: skill sem `effects.by_skill` reprova). NAO mede E_A - nao observa se o runtime de fato bloqueia a escrita remota em tempo de execucao; e oraculo de coerencia entre artefatos declarados (policy, registry, frontmatter, corpo), como o proprio G102 ja limitava. `prd-to-issues` ganhou um passo novo (publicar PRD local antes de fatiar) para fechar o buraco que a opcao local-write de write-a-prd abre no pipeline; a decisao de escrita remota continua manual, sob `disable-model-invocation: true` ja existente."
     }
   ],
   "reading": [
@@ -2007,11 +2021,11 @@
   "completeness": "`tests/unit/governance-links.py` confere que todo identificador citado com marcador estruturado nos ADRs (`**C1 -`, `**F2 -`, `**A4 -`) aparece como `finding_id` aqui. Antes dessa checagem o portao so recontava as linhas PRESENTES - consistencia interna, nunca completude do universo.",
   "derived": {
     "_comment": "BLOCO DERIVADO - nao editar a mao. `evidence/corpus/render.py` o recalcula e `tests/unit/governance-links.py` reprova se divergir dos findings. Existe porque o cabecalho deste arquivo declarava 'ondas 11 a 15' e ADR 0031..0035 enquanto os proprios dados ja tinham onda 17 e ADR 0036 - metadado de frame escrito a mao envelhece contra o dado que ele descreve.",
-    "n_findings": 150,
+    "n_findings": 151,
     "wave_min": 11,
-    "wave_max": 27,
+    "wave_max": 28,
     "counts_by_mode": {
-      "aplicacao-de-instrumento": 33,
+      "aplicacao-de-instrumento": 34,
       "auditoria-externa": 45,
       "execucao-em-ambiente-alheio": 3,
       "execucao-hostil": 1,
@@ -2042,6 +2056,7 @@
       "evidence/validate-literature.py",
       "execution/config/CLAUDE.md",
       "orchestration/registry.json",
+      "orchestration/skill-policy.json",
       "tests/mutation/verify-gate-delta.sh",
       "tests/unit/contrato-de-instalador.sh"
     ],
@@ -2074,7 +2089,7 @@
     ],
     "by_state": {
       "open": 25,
-      "resolved": 125
+      "resolved": 126
     }
   },
   "historical_states": [

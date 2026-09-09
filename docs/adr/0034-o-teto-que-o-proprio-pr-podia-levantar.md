@@ -128,3 +128,11 @@ proprio, nao extensao cega desta contagem.
 `EvidenceValidity` continua ausente: um dossie legitimo em `t0` pode deixar de valer em `t1`
 apos atualizacao de runtime ou modelo, e o schema nao expressa `evaluated_with` nem status
 `stale`. Segue registrado como a proxima onda.
+
+> **ERRATA (ver `docs/adr/0046-evidencia-envelhece-quando-o-ambiente-muda.md`).** Este paragrafo
+> ficou desatualizado sem correcao. `evaluated_with` nao "continua ausente": entrou na onda 15
+> (`docs/adr/0035-a-divida-era-de-uma-classe-so.md`) e ja era exigido por
+> `tests/unit/capability-conformance.py` no momento em que esta linha foi escrita. O status
+> `stale` como VALOR do vocabulario de `evidence.status`, esse sim ausente ate aqui, e entregue
+> na onda 28 (ADR 0046), junto do envelope declarado `orchestration/environment.json` contra o
+> qual `runtime`/`model` passam a ser comparados.
