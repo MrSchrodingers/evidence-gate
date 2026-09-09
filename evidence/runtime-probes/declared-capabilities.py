@@ -29,9 +29,14 @@ sessao principal, nunca um subagente: subagente nao cria subagente).
 O QUE ESTE SCRIPT VERIFICA
 ---------------------------
 Para cada `execution/agents/<nome>.md` (a fonte canonica):
-  1. O `tools:` do frontmatter e extraido como um CONJUNTO (a ORDEM dos nomes nao importa -
-     medido: a projecao do repo para `tdd` lista as mesmas seis ferramentas em ordem diferente
-     da fonte canonica, e isso NAO e divergencia).
+  1. O `tools:` do frontmatter e extraido como um CONJUNTO (a ORDEM dos nomes nao importa).
+     HISTORICO (ate a onda 27/G105): a projecao do repo para `tdd` era mantida A MAO e listava
+     as mesmas seis ferramentas em ordem diferente da fonte canonica - por isso a comparacao
+     precisava ignorar ordem. Desde que `orchestration/render.py` passou a GERAR a projecao do
+     repo (em vez de so verifica-la), `tools:` copia o valor do canonico verbatim e a ordem
+     casa POR CONSTRUCAO para essa perna; a comparacao por conjunto (em vez de sequencia)
+     permanece porque a leitura instalada (`<CLAUDE_HOME>/agents`, item 3 abaixo) continua fora
+     do alcance do gerador e pode divergir em ordem por qualquer outro motivo.
   2. O mesmo campo e extraido de `.claude/agents/<nome>.md` (projecao local deste repositorio,
      gerada por `orchestration/render.py` - um estipe DIFERENTE do arquivo canonico, com corpo
      truncado e campos extras como `permissionMode`, mas que declara `tools:` de novo).
@@ -49,8 +54,13 @@ Para cada `execution/agents/<nome>.md` (a fonte canonica):
      diverge de qualquer lista finita do canonico - nao e lacuna, e VIOLACAO.
 
 `orchestration/render.py --check` ja confere que as tres arvores existem e que os workflows sao
-validos; ele NAO confere que `tools:` case entre elas (registry.json nem armazena a lista de
-ferramentas). Este script fecha exatamente essa lacuna, sem duplicar a logica de render.py.
+validos. Desde a onda 27 (G105) ele TAMBEM gera a projecao do repo a partir do canonico, o que
+faz `tools:` (e `description:`, `model:`) casar por CONSTRUCAO entre `execution/agents` e
+`.claude/agents` - conferir os dois de novo aqui seria duplicar logica de render.py sem ganhar
+poder de deteccao. O valor residual deste script para `tools:` passa a ser a perna que a
+geracao NAO alcanca: `<CLAUDE_HOME>/agents` (item 3 acima), que so este arquivo compara -
+render.py nunca escreve fora deste repositorio, e `install/manifest.lock` prende a copia
+instalada ao digest do canonico, nunca ao conteudo de `tools:` por si.
 
 SEGUNDA PROPRIEDADE: CONTRATO DE ESCRITA x CAPACIDADE DECLARADA
 ----------------------------------------------------------------
@@ -376,8 +386,12 @@ def main() -> int:
     # comentario: uma saida que dissesse "identico nas 3 fontes" comparando so 2 seria uma prova
     # arquivada de uma comparacao que nunca ocorreu.
     #
-    # Valor colateral: `orchestration/render.py --check` so verifica que a projecao EXISTE.
-    # Esta comparacao de conteudo fecha parte dessa lacuna semantica para o campo `tools:`.
+    # Valor colateral (ONDA 27/G105): `orchestration/render.py` gera `.claude/agents` a partir
+    # do canonico, entao `tools:` ja casa por construcao entre essas duas arvores - esta
+    # comparacao de conteudo deixa de acrescentar poder de deteccao ali. O que sobra e a perna
+    # `<CLAUDE_HOME>/agents`, que a geracao nunca alcanca: e essa comparacao (canonico x
+    # instalada) que continua sendo o valor real deste modo, nao a comparacao canonico x
+    # projecao do repo.
     canon_dir = ROOT / "execution" / "agents"
     repo_proj_dir = ROOT / ".claude" / "agents"
     home_dir = CLAUDE_HOME / "agents"

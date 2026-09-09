@@ -8,7 +8,7 @@ hook	control/hooks/risk-trigger.sh	hooks/risk-trigger.sh	61a4c713fe597ee78ababa4
 hook	control/hooks/self-mod-audit.sh	hooks/self-mod-audit.sh	6267201c3434ce7a8f77cf50216a96bb303ce9abcedb0153558dbf001681fe0c
 hook	control/hooks/session-integrity.sh	hooks/session-integrity.sh	89f41620238bfb76e16d7fe4c92c84fd5ab1b87fdf532cb66d49801e4c9de6eb
 hook	execution/hooks/ds4-notify.sh	hooks/ds4-notify.sh	6cd9d9d53491c91b2fd7f6701cb69d424a41fb66647d74d4990d7208bf883b26
-hook	execution/hooks/graphify-scout-mode.sh	hooks/graphify-scout-mode.sh	76b8954fb91719b35ee14ba443724ec80399f5713760813723bc5a80e8d6a84d
+hook	execution/hooks/graphify-scout-mode.sh	hooks/graphify-scout-mode.sh	9a43101f4ff30acfa5962aa89511f333b03f76d0f6ef060cd185262bfae1bd3d
 hook	execution/hooks/lentes.sh	hooks/lentes.sh	06a7085ac89f505953e5402572678e38506d6318df9f1d44bfc4b970afa6390f
 hook	execution/hooks/output-budget.sh	hooks/output-budget.sh	62a321cc6b504d2f2520a7ff8db045cb765671eb530dc5827fba206e8b0c3fcb
 hook	execution/hooks/poka-yoke-lint.sh	hooks/poka-yoke-lint.sh	1fc83e6b1c085de08588722c3b05cbd97bd4045ac5c6fefb445d520ffb636981

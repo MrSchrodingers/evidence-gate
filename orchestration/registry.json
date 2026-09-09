@@ -1,5 +1,6 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "_schema_v2_note": "ONDA 27 (G105/issue #49). Ate a v1, cada entrada de `agents` so declarava `source` e `writes`; a derivacao runtime das dez projecoes (permissionMode, maxTurns, memory, isolation, sandbox_mode, model Codex, esforco de raciocinio Codex) nao tinha procedencia legivel por maquina - era mantida A MAO em `.claude/agents/*.md` e `.codex/agents/*.toml`, sem oraculo que a amarrasse ao registry. A v2 acrescenta `codex_model`/`codex_reasoning_effort` por agente e o bloco `projection_profiles`, e `orchestration/render.py` passa a LER esses campos para GERAR as duas projecoes, nao so verifica-las.",
   "architecture": "canonical-core-with-verified-projections",
   "invariants": {
     "single_writer": true,
@@ -16,43 +17,78 @@
   "agents": {
     "investigador": {
       "source": "execution/agents/investigador.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "mapeador-dependencias": {
       "source": "execution/agents/mapeador-dependencias.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "tdd": {
       "source": "execution/agents/tdd.md",
-      "writes": true
+      "writes": true,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "implementador": {
       "source": "execution/agents/implementador.md",
-      "writes": true
+      "writes": true,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "revisor-codigo": {
       "source": "execution/agents/revisor-codigo.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "refutador": {
       "source": "execution/agents/refutador.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "xhigh"
     },
     "auditor-seguranca": {
       "source": "execution/agents/auditor-seguranca.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "xhigh"
     },
     "analista-otimalidade": {
       "source": "execution/agents/analista-otimalidade.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "analista-fluxos": {
       "source": "execution/agents/analista-fluxos.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6",
+      "codex_reasoning_effort": "high"
     },
     "revisor-frontend": {
       "source": "execution/agents/revisor-frontend.md",
-      "writes": false
+      "writes": false,
+      "codex_model": "gpt-5.6-terra",
+      "codex_reasoning_effort": "high"
+    }
+  },
+  "projection_profiles": {
+    "_note": "ONDA 27 (G105/issue #49). Deriva EXPLICITAMENTE, a partir de `writes`, os campos runtime-only que `orchestration/render.py` grava nas projecoes (`.claude/agents/*.md`, `.codex/agents/*.toml`). `color` do canonico (`execution/agents/*.md`) fica de fora de proposito: e um rotulo de UI do Claude Code sem contraparte documentada em nenhum dos dois runtimes de projecao, e o gerador nao inventa campo que nenhuma doc primaria declara.",
+    "writes_false": {
+      "permissionMode": "plan",
+      "maxTurns": 24,
+      "sandbox_mode": "read-only"
+    },
+    "writes_true": {
+      "permissionMode": "acceptEdits",
+      "maxTurns": 36,
+      "memory": "project",
+      "isolation": "worktree",
+      "sandbox_mode": "workspace-write"
     }
   },
   "skill_governance": {
@@ -170,7 +206,6 @@
       "state": "candidate",
       "installed": false,
       "activation": "always",
-      "measured_size_bytes": 18274,
       "evidence": {
         "dossier": null,
         "status": "absent",
@@ -183,7 +218,7 @@
           }
         }
       },
-      "note": "nome em minusculo por exigencia de CC3; o caminho real esta em `source`. ONDA 22b: o kernel deixou a projecao de usuario e passa a ser projetado para /etc/claude-code/CLAUDE.md, root-owned. Documentos de instrucao sao CONCATENADOS pelo runtime, entao manter as duas copias custava contexto em toda sessao sem acrescentar informacao. `installed` continua descrevendo a projecao de USUARIO - e por isso False.",
+      "note": "nome em minusculo por exigencia de CC3; o caminho real esta em `source`. ONDA 22b: o kernel deixou a projecao de usuario e passa a ser projetado para /etc/claude-code/CLAUDE.md, root-owned. Documentos de instrucao sao CONCATENADOS pelo runtime, entao manter as duas copias custava contexto em toda sessao sem acrescentar informacao. `installed` continua descrevendo a projecao de USUARIO - e por isso False. G104 (issue #48): `measured_size_bytes` removido - era literal digitado a mao sem derivacao de `source` nem assercao que os comparasse, e divergiu da fonte em ce57138 (18274 -> 2924 bytes) sem que o portao acusasse. Zero consumidores do campo; ver tests/unit/capability-conformance.py CC7.",
       "projection": "managed"
     },
     "defesa-de-tese": {
@@ -207,7 +242,7 @@
       "source": "execution/skills/depreciar",
       "state": "candidate",
       "installed": true,
-      "activation": "contextual",
+      "activation": "manual",
       "evidence": {
         "dossier": null,
         "status": "absent",
@@ -302,7 +337,7 @@
       "source": "execution/skills/forge",
       "state": "candidate",
       "installed": true,
-      "activation": "contextual",
+      "activation": "manual",
       "evidence": {
         "dossier": null,
         "status": "absent",
@@ -557,7 +592,7 @@
       "source": "execution/skills/prd-to-issues",
       "state": "candidate",
       "installed": true,
-      "activation": "contextual",
+      "activation": "manual",
       "evidence": {
         "dossier": null,
         "status": "absent",

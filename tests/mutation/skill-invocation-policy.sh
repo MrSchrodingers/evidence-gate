@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# G102 (issue #46) considerou 4 mutantes novos para este arnes - registry.forge.activation
+# mentindo "contextual" com frontmatter manual; remocao do graphify de
+# activation.model_invocable_exceptions; registry.depreciar.activation fora do enum ("banana");
+# e um controle de direcao (comentario inerte em SKILL.md). Os quatro foram VALIDADOS AD-HOC
+# durante a correcao (backup/mutacao/execucao/restauracao manual de
+# orchestration/registry.json, orchestration/skill-policy.json e
+# execution/skills/graphify/SKILL.md) e os tres primeiros reprovam tests/unit/skill-invocation-policy.sh
+# enquanto o quarto permanece verde - mas NAO foram incorporados a este arquivo. Acrescentar
+# mutante aqui muda `EXPECTED_MUTANTS` e, por consequencia, a contagem publicada em
+# docs/status.generated.md:54 (`skill-invocation-policy (auto) | 2 | ...`) - arquivo e script
+# geradores fora do escopo de edicao autorizado nesta correcao. Decisao registrada em
+# evidence/corpus/agente-x-defeito.json (G102): manter M1/M2, sem mutante dedicado ao defeito de
+# FATO (campo `activation` mentiroso), ate que a regeneracao de docs/status.generated.md seja
+# autorizada.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 # TMPDIR DAS SUITES: esta suite nao toma o lock (por desenho), mas cria temporarios igual as

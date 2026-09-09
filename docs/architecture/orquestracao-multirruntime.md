@@ -36,7 +36,7 @@ As fontes canônicas dos agentes ficam em `execution/agents/*.md`.
 
 - Claude Code recebe wrappers em `.claude/agents/*.md`.
 - Codex recebe wrappers em `.codex/agents/*.toml`.
-- `orchestration/render.py --check` verifica a convergência do inventário declarado no registry com as duas projeções.
+- `orchestration/render.py` gera as duas projeções a partir do canônico e do registry; `orchestration/render.py --check` compara byte a byte o que está em disco com o que a geração produziria, sem escrever nada.
 
 A convergência verificada é estrutural: existência, inventário e configuração declarada. Sandboxing, permission modes, worktrees, tool semantics e comportamento do modelo permanecem propriedades de cada runtime.
 
@@ -44,13 +44,15 @@ A convergência verificada é estrutural: existência, inventário e configuraç
 
 Skills canônicas vivem em `execution/skills/` e são governadas por `orchestration/skill-policy.json` e `orchestration/evaluation-protocol.json`.
 
-Elas **não são blanket-projected para todos os runtimes**. A política atual é `default_activation = off`, exige compatibilidade, gatilho observável e evidência pareada para promoção. Uma futura projeção ou mecanismo automático de seleção de skills deve ser tratado como nova superfície experimental e validado antes de ser incorporado ao registry.
+Elas **não são blanket-projected para todos os runtimes**. A política atual (`activation.default = "manual"` em `orchestration/skill-policy.json`, corrigida em G102/issue #46) exige compatibilidade, gatilho observável e evidência pareada para promoção. Uma futura projeção ou mecanismo automático de seleção de skills deve ser tratado como nova superfície experimental e validado antes de ser incorporado ao registry.
 
 No fluxo de instalação global do Claude, as skills promovidas presentes no manifesto podem ser instaladas no destino global correspondente; isso não equivale a afirmar que existe hoje uma projeção de projeto `.agents/skills/` para Codex.
 
 ## Workflows
 
-`investigation-only`, `standard-change` e `high-risk-change` são definidos em JSON em `orchestration/workflows/` e validados contra o registry.
+`investigation-only`, `standard-change` e `high-risk-change` são definidos em JSON em `orchestration/workflows/`; `orchestration/render.py --check` compara o inventário desse diretório com `registry.json["workflows"]` e reprova a divergência.
+
+A escolha de qual workflow um risco do kernel (`execution/config/CLAUDE.md`, seção 7) aciona é declarada em `orchestration/risk-policy.json` e verificada pelo mesmo `orchestration/render.py --check`: o domínio vem da tabela do kernel, o contradomínio vem do diretório de workflows, e a política nunca se autoconfirma (ver ADR 0043).
 
 O fluxo padrão mantém a separação:
 

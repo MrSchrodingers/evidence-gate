@@ -28,7 +28,6 @@ def check(condition: bool, message: str) -> None:
 
 selection = policy["selection"]
 check(policy["schema_version"] == 1, "schema da politica conhecido")
-check(policy["default_activation"] == "off", "skill injection desligada por default")
 check(selection["mode"] == "evidence-gated", "selecao de skill exige evidencia")
 check(selection["require_observable_trigger"] is True, "gatilho observavel obrigatorio")
 check(selection["require_repository_compatibility"] is True, "compatibilidade com repositorio obrigatoria")
@@ -54,6 +53,44 @@ claims = policy["claims"]
 check(claims["skill_is_not_authority"] is True, "skill nao e autoridade")
 check(claims["skill_is_not_certifier"] is True, "skill nao certifica a propria eficacia")
 check(claims["self_generated_skill_requires_quarantine"] is True, "skill auto-gerada exige quarentena")
+
+# G102 (issue #46). A LINHA QUE ESTAVA AQUI CHECAVA `policy["default_activation"] == "off"`
+# reabrindo o MESMO skill-policy.json e comparando com o literal que ele proprio contem - nao
+# podia reprovar em estado nenhum do arquivo, so em erro de leitura. O campo `default_activation`
+# nao tinha executor: nenhum programa deste repositorio o lia para decidir coisa alguma.
+#
+# A proposicao que fica no lugar tem DOIS LADOS INDEPENDENTES, cada um lido de um arquivo
+# diferente: o conjunto de skills MODEL-INVOCABLE (`contextual`) DECLARADO em
+# `activation.model_invocable_exceptions` de skill-policy.json contra o conjunto DERIVADO do
+# FRONTMATTER de cada skill em disco (ausencia da chave `disable-model-invocation: true` em
+# execution/skills/<n>/SKILL.md). Nenhum dos dois arquivos contem a string do outro; editar
+# qualquer um sozinho reprova.
+#
+# `tests/unit/skill-invocation-policy.sh` cobre o mesmo par de fontes por skill individual
+# (registry.json contra frontmatter) e por presenca de `reason`; este bloco cobre o CONJUNTO
+# (activation.model_invocable_exceptions contra o disco), como defesa em profundidade contra
+# uma excecao adicionada aqui sem correspondente em disco, ou vice-versa.
+_activacao = policy.get("activation") or {}
+_excecoes_policy = {e["skill"] for e in _activacao.get("model_invocable_exceptions", [])}
+_dir_skills = ROOT / "execution/skills"
+_contextual_em_disco = set()
+if _dir_skills.is_dir():
+    for _sk_dir in sorted(_dir_skills.iterdir()):
+        if not _sk_dir.is_dir():
+            continue
+        _skill_md = _sk_dir / "SKILL.md"
+        if not _skill_md.is_file():
+            continue
+        _bloco_fm = _skill_md.read_text(encoding="utf-8").split("---", 2)
+        _fm_texto = _bloco_fm[1] if len(_bloco_fm) >= 3 else ""
+        if not re.search(r"^disable-model-invocation:\s*true\s*$", _fm_texto, re.MULTILINE):
+            _contextual_em_disco.add(_sk_dir.name)
+check(_excecoes_policy == _contextual_em_disco,
+      "excecoes de ativacao por modelo em skill-policy.json == skills contextuais em disco"
+      + ("" if _excecoes_policy == _contextual_em_disco
+         else f" - so na policy: {sorted(_excecoes_policy - _contextual_em_disco)};"
+              f" so no disco: {sorted(_contextual_em_disco - _excecoes_policy)}"))
+check(len(_contextual_em_disco) >= 1, f"ha skill contextual em disco a conferir (medido: {len(_contextual_em_disco)})")
 
 check(protocol["schema_version"] == 1, "schema do protocolo conhecido")
 check(protocol["unit"] == "repository_task_trial", "unidade experimental explicita")

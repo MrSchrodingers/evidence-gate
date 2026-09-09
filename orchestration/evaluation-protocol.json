@@ -28,7 +28,21 @@
     "same_model_scaffold_between_paired_conditions": true,
     "repeated_trials_required_for_stochastic_agents": true,
     "record_execution_order": true,
-    "skill_selection_evaluated_separately": true
+    "skill_selection_evaluated_separately": true,
+    "arms": {
+      "A_router_puro": {"routing_nudges": "off", "estimand": "a description roteia?"},
+      "B_sistema_deployado": {"routing_nudges": "on", "estimand": "skill + nudge produzem uso?"}
+    },
+    "arm_must_be_recorded_per_trial": true
+  },
+  "routing_covariates": {
+    "declared": true,
+    "note": "stdout de hook UserPromptSubmit e entregue ao modelo como contexto; e canal de routing, nao ambiente neutro",
+    "off_switch_env": "TOLLENS_ROUTING_NUDGES",
+    "hooks": [
+      {"hook": "graphify-scout-mode.sh", "channel": "UserPromptSubmit", "off_switch_required": true},
+      {"hook": "lentes.sh", "channel": "UserPromptSubmit", "off_switch_required": false, "issue": 54}
+    ]
   },
   "metrics": {
     "primary": ["requirement_pass_rate", "paired_correctness_delta"],

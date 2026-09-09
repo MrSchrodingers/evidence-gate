@@ -62,6 +62,31 @@ Este ADR não afirma que `tollens` melhora a qualidade de agentes, que uma skill
 universalmente útil ou que subagentes são estatisticamente independentes. Tais afirmações exigem
 experimentos próprios e permanecem hipóteses até medição.
 
+## Errata 2026-09-08
+
+**G102 -** a decisão 1 dizia apenas `default_activation = off`, um termo sem definição
+operacional e sem consumidor: nenhum executável do repositório o lia para decidir coisa alguma,
+e a única asserção que o citava (`tests/unit/methodology.py`) reabria o mesmo
+`orchestration/skill-policy.json` e o comparava com o literal que ele próprio contém. Ao mesmo
+tempo, `orchestration/registry.json` declarava `capabilities.*.activation` sem qualquer oráculo
+que o conferisse contra o frontmatter real das Skills - divergiu em 3 das 8
+(`depreciar`, `forge`, `prd-to-issues` diziam `contextual` enquanto cada `SKILL.md` tem
+`disable-model-invocation: true`), sem que nada ficasse vermelho.
+
+A decisão 1 passa a ler: `orchestration/skill-policy.json` declara um bloco `activation` com
+`default: "manual"`, um vocabulário fechado (`manual`/`contextual`), o mecanismo (a chave de
+frontmatter `disable-model-invocation`) e a lista `model_invocable_exceptions` das Skills que
+permanecem elegíveis ao routing automático do modelo, cada uma com `reason`. `registry.json` foi
+corrigido nas 3 entradas que contradiziam o próprio frontmatter, e
+`tests/unit/skill-invocation-policy.sh` passou a comparar, por Skill, o valor declarado contra o
+derivado do frontmatter, e a exigir vocabulário fechado e exceção declarada com motivo.
+
+Isto fecha `PolicyDeclared != PolicyEnforced` na camada de ARTEFATO (os três registros
+concordam entre si). Isto NÃO mede `E_A` - não observa se o runtime de fato roteia. Afirmar o
+contrário repetiria o defeito do ADR 0036 (G6a). Ver
+`docs/architecture/skill-invocation-policy.pt.md` e `evidence/corpus/agente-x-defeito.json`
+(`G102`).
+
 ## Referências
 
 - Han et al., *SWE-Skills-Bench: Do Agent Skills Actually Help in Real-World Software Engineering?*, arXiv:2603.15401, 2026.

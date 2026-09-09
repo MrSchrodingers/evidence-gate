@@ -391,6 +391,10 @@ grep -q 'tool_use' "$SK/depreciar/SKILL.md" && grep -q '/nome\|/cmd\|canal' "$SK
 chk "depreciar documenta os DOIS canais de invocacao" $? 0
 grep -qE 'ressalva|\(a\)|\(b\)|\(c\)' "$SK/depreciar/SKILL.md"; chk "  documenta as ressalvas antes de arquivar" $? 0
 bash -n evidence/telemetry/medir-skills.sh; chk "medir-skills.sh sintaxe" $? 0
+# issue #53 (G109): suite dedicada de fixtures para os dois canais de invocacao e o
+# denominador de oportunidade. Pendurada aqui (nao no workflow) porque tests/unit/run.sh ja
+# esta wired em verify-pr.yml e o workflow esta fora do escopo editavel desta correcao.
+bash tests/unit/telemetry-skills.sh >/dev/null 2>&1; chk "telemetry-skills.sh (issue #53)" $? 0
 
 echo
 echo "================ PASS=$P  FAIL=$F ================"
@@ -438,7 +442,7 @@ chk "EI5 e entrega additionalContext (canal que chega ao modelo)" \
 seg0=$(date +%s); ( cd "$EIR" && timeout 30 bash "$EVID/verify-gate.sh" 0<&- >/dev/null 2>&1 ); seg1=$(date +%s)
 chk "EI6 e a leitura e LIMITADA no tempo (nao pendura)" "$([ $((seg1-seg0)) -le 15 ] && echo sim || echo nao)" sim
 
-EXPECTED=$((70 + UNSHARE_OK * 3))
+EXPECTED=$((71 + UNSHARE_OK * 3))
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

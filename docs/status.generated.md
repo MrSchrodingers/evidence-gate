@@ -45,12 +45,13 @@ O README referencia este arquivo em vez de duplicar numeros.
 | capability declarada | 7 | passo dedicado no CI |
 | cobertura de decisao | 6 | passo dedicado no CI |
 | adaptadores (auto) | 5 | passo dedicado no CI |
-| capability-conformance (auto) | 27 | passo dedicado no CI |
+| capability-conformance (auto) | 29 | passo dedicado no CI |
 | corpus-completude (auto) | 22 | passo dedicado no CI |
 | fable-guard (auto) | 12 | passo dedicado no CI |
-| hooks-de-guarda (auto) | 18 | passo dedicado no CI |
+| hooks-de-guarda (auto) | 19 | passo dedicado no CI |
 | lint-delta (auto) | 11 | passo dedicado no CI |
 | managed-transitive-trust (auto) | 2 | NAO executado no CI |
+| risk-policy (auto) | 5 | NAO executado no CI |
 | skill-invocation-policy (auto) | 2 | NAO executado no CI |
 | verify-gate-delta (auto) | 18 | passo dedicado no CI |
 
