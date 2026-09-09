@@ -52,7 +52,7 @@ O README referencia este arquivo em vez de duplicar numeros.
 | lint-delta (auto) | 11 | passo dedicado no CI |
 | managed-transitive-trust (auto) | 2 | NAO executado no CI |
 | risk-policy (auto) | 5 | NAO executado no CI |
-| skill-invocation-policy (auto) | 2 | NAO executado no CI |
+| skill-invocation-policy (auto) | 3 | NAO executado no CI |
 | verify-gate-delta (auto) | 18 | passo dedicado no CI |
 
 ## Cobertura de decisao (branch), medida via subprocesso instrumentado

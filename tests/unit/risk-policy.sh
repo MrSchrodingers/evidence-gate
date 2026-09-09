@@ -250,8 +250,35 @@ OUTP="$(python3 "$VALIDADOR" --check 2>&1)"; RCP=$?
 chk "producao: politica de risco real aprova sobre a arvore real" "$RCP" 0
 
 echo
+# F4 (refutador da onda 27). O kernel apontava para `orchestration/risk-policy.json` sem
+# carregar o mapa: o runtime concatena CLAUDE.md/AGENTS.md e NAO entrega o JSON ao leitor,
+# entao a regra ficava inalcancavel - o modo de falha que G44 chama de "progressive
+# disclosure que nao existe". A correcao repoe o mapa no kernel, e estas assercoes impedem
+# que a copia envelheca: cada classe do artefato tem de aparecer no texto com o MESMO
+# workflow, e o texto nao pode nomear par que o artefato nao tenha.
+echo "== F4. o kernel carrega o mapa, e o mapa nao envelhece =="
+for _k in CLAUDE.md AGENTS.md; do
+  _falta="$(python3 - "$_k" <<'PYEOF'
+import json, pathlib, re, sys
+doc = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+mapa = json.loads(pathlib.Path("orchestration/risk-policy.json").read_text(encoding="utf-8"))["map"]
+ruim = []
+for classe, v in mapa.items():
+    wf = v["workflow"]
+    # a classe tem de ser nomeada no texto, e o destino junto dela (ou "direto" quando null)
+    m = re.search(rf"{re.escape(classe)}\s*[=:>-]+\s*`?([a-z-]+|direto)`?", doc)
+    if not m:
+        ruim.append(f"{classe}: ausente")
+    elif m.group(1) != (wf if wf else "direto"):
+        ruim.append(f"{classe}: texto={m.group(1)} artefato={wf or 'direto'}")
+print(",".join(ruim) if ruim else "ok")
+PYEOF
+)"
+  chk "  $_k carrega o mapa risco->workflow do artefato" "$_falta" ok
+done
+
 echo "================ PASS=$P  FAIL=$F ================"
-EXPECTED=24
+EXPECTED=26
 if [ "$P" -ne "$EXPECTED" ]; then
   echo "CONTAGEM INESPERADA: PASS=$P, esperado $EXPECTED. Caso removido ou nao executado."
   exit 1

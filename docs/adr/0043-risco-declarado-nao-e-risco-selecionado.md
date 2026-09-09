@@ -6,6 +6,11 @@ Sucede: ADR 0042 (o portao julga o delta, nao a arvore)
 
 ## O defeito, medido (G103, issue #47)
 
+**G103 -** o kernel governa por CLASSE DE RISCO (4 classes) e a orquestracao por ID DE
+WORKFLOW (3 ids), e nao existia artefato versionado ligando os dois vocabularios: a funcao
+R: RiskClass -> WorkflowId nao era total, nao era resolvivel e nao era refutavel por oraculo
+algum. A ligacao vivia so em prosa.
+
 O kernel (`execution/config/CLAUDE.md`, secao 7, "Delegacao por risco, nao por ritual") governa
 por CLASSE DE RISCO - quatro linhas: `trivial`, `normal`, `medio`, `alto`. A orquestracao
 (`orchestration/registry.json`, `orchestration/workflows/*.json`) governa por ID DE WORKFLOW -

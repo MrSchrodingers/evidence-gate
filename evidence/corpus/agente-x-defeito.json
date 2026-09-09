@@ -1952,6 +1952,22 @@
       "resolution_note": "fecha PolicyDeclared != PolicyEnforced na camada de ARTEFATO (registry.activation coerente com o frontmatter, excecoes de routing automatico declaradas com motivo em skill-policy.json). NAO mede E_A - nao observa se o runtime de fato roteia. Ver G44, que continua aberto: o que decidiria ativacao de fato e o benchmark de roteamento, nao este oraculo de coerencia entre artefatos declarados."
     },
     {
+      "finding_id": "G103",
+      "wave": 27,
+      "state": "resolved",
+      "mode": "aplicacao-de-instrumento",
+      "found_by": "aplicacao-de-instrumento",
+      "review_round": "correcao delegada do achado G103 (issue #47)",
+      "class": "dois-vocabularios-de-governanca-sem-funcao-que-os-ligue",
+      "defect": "o kernel governa por CLASSE DE RISCO (4 classes em execution/config/CLAUDE.md) e a orquestracao governa por ID DE WORKFLOW (3 ids em orchestration/registry.json), e nao existia artefato versionado que ligasse os dois vocabularios. A funcao R: RiskClass -> WorkflowId vivia apenas em prosa nao verificavel - CLAUDE.md mapeava por DOMINIO ('autorizacao, parser, dependencia') e docs/method/orquestracao-e-avaliacao.md dizia apenas 'o classificador escolhe' -, de modo que a funcao nao era total, nao era resolvivel e nao era refutavel por oraculo algum. Duas leituras incompativeis do kernel produziam escalonamentos diferentes para a mesma tarefa, e nenhuma era verificavel",
+      "measured": "grep -rn 'trivial' em orchestration/*.json retornava ZERO ocorrencias: nenhum dos tres workflows declarava a que classe de risco respondia. Alem disso standard-change tem 11 nos e ja inclui investigate, map, plan, review E refute, o que nao corresponde nem a linha 'normal' (escrever, testar) nem a 'medio' (escrever, testar, revisar) do kernel. Instrumento novo em tests/unit/risk-policy.sh: ANTES da correcao reprovava contra os artefatos de main em todas as fixtures (rc=1); DEPOIS 24/24, com tests/mutation/risk-policy.sh matando 5 de 5 mutantes no caso-alvo correspondente. A totalidade e TOTAL sobre as 4 classes do kernel: a fixture N6 prova que o dominio vem do kernel e N7 que o contradominio vem do filesystem, entao nem classe orfa nem workflow fantasma passam",
+      "evidence": "orchestration/risk-policy.json (artefato novo), tests/unit/risk-policy.sh, tests/mutation/risk-policy.sh, docs/adr/0043-risco-declarado-nao-e-risco-selecionado.md",
+      "resolution_note": "a funcao passou a existir como artefato versionado, total sobre as quatro classes do kernel e verificada nos dois lados: dominio derivado de execution/config/CLAUDE.md e contradominio derivado de orchestration/workflows/*.json. investigation-only e declarado explicitamente como NAO selecionado por risco, em vez de ficar orfao por omissao",
+      "resolution_ref": "docs/adr/0043-risco-declarado-nao-e-risco-selecionado.md",
+      "source_ref": "docs/adr/0043-risco-declarado-nao-e-risco-selecionado.md",
+      "note": "achado registrado apos o portao de completude ser corrigido: tests/unit/governance-links.py limitava o identificador a DOIS digitos (regex [A-Z]\\d{1,2}), entao toda a serie G100+ escapava da checagem. G103 foi o primeiro achado a cair nessa lacuna, e o refutador da onda 27 a nomeou. A issue publica e https://github.com/MrSchrodingers/tollens/issues/47"
+    },
+    {
       "finding_id": "G105",
       "wave": 27,
       "state": "resolved",
@@ -1991,11 +2007,11 @@
   "completeness": "`tests/unit/governance-links.py` confere que todo identificador citado com marcador estruturado nos ADRs (`**C1 -`, `**F2 -`, `**A4 -`) aparece como `finding_id` aqui. Antes dessa checagem o portao so recontava as linhas PRESENTES - consistencia interna, nunca completude do universo.",
   "derived": {
     "_comment": "BLOCO DERIVADO - nao editar a mao. `evidence/corpus/render.py` o recalcula e `tests/unit/governance-links.py` reprova se divergir dos findings. Existe porque o cabecalho deste arquivo declarava 'ondas 11 a 15' e ADR 0031..0035 enquanto os proprios dados ja tinham onda 17 e ADR 0036 - metadado de frame escrito a mao envelhece contra o dado que ele descreve.",
-    "n_findings": 149,
+    "n_findings": 150,
     "wave_min": 11,
     "wave_max": 27,
     "counts_by_mode": {
-      "aplicacao-de-instrumento": 32,
+      "aplicacao-de-instrumento": 33,
       "auditoria-externa": 45,
       "execucao-em-ambiente-alheio": 3,
       "execucao-hostil": 1,
@@ -2015,6 +2031,7 @@
       "docs/adr/0040-o-artefato-nao-pode-depender-de-onde-foi-gerado.md",
       "docs/adr/0041-o-kernel-guardava-a-classe-errada-de-erro.md",
       "docs/adr/0042-o-portao-julga-o-delta-nao-a-arvore.md",
+      "docs/adr/0043-risco-declarado-nao-e-risco-selecionado.md",
       "evidence/experiments/RESULTADOS-INVALIDADOS.md",
       "evidence/hooks/subagent-contract.sh",
       "evidence/hooks/verify-gate.sh",
@@ -2057,7 +2074,7 @@
     ],
     "by_state": {
       "open": 25,
-      "resolved": 124
+      "resolved": 125
     }
   },
   "historical_states": [
