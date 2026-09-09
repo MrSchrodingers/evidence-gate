@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "_comment": "Envelope DECLARADO de runtime/modelo suportados para avaliacao - o segundo lado que faltava para `orchestration/evidence-policy.json:staleness` comparar `evaluated_with.runtime`/`.runtime_version`/`.model` contra algo. Fica em arquivo SEPARADO da policy de proposito: `tests/unit/capability-conformance.py:_digest_da_policy` hasheia `skill-policy.json` + `evidence-policy.json` para invalidar dossies por `policy_digest`. Se este envelope morasse dentro da policy, toda subida de versao de runtime aqui invalidaria TODOS os dossies por `policy_digest` - colapsando a distincao que `staleness.invalidated_by` existe para manter (artifact_digest / policy_digest / runtime / model sao QUATRO causas distintas, nao uma).",
+  "_errata": "Uma versao anterior de `orchestration/evidence-policy.json:staleness.limit` afirmava que este arquivo NUNCA EXISTIU e que inventa-lo seria repetir o defeito que a policy existe para tornar caro. Essa linha estava certa quando foi escrita: o arquivo nao existia. Ela deixou de estar certa nesta onda (ADR 0045), que o cria porque o desenho pedido exige o segundo lado da comparacao. A linha na policy foi corrigida para registrar as duas afirmacoes e a mudanca entre elas, no mesmo padrao de errata ja usado em ADR 0033/0034/0035 para outras claims que o proprio codigo ultrapassou.",
+  "supported": {
+    "runtime": {
+      "claude_code": true
+    },
+    "runtime_version": ["2.1.226"],
+    "model": ["opus-5"]
+  },
+  "limit": "Declaracao, nao observacao: um portao nao ve de dentro qual runtime ou modelo executa a sessao corrente. Este arquivo diz o que a GOVERNANCA autoriza como ambiente de avaliacao valido - o mesmo espirito de `orchestration/evidence-policy.json:staleness.limit` e de `orchestration/evidence-policy.json:runtime_exposure.limit`. Comparar `evaluated_with` (declarado no dossie) contra `supported` (declarado aqui) e comparar DECLARADO contra DECLARADO: o mesmo PR que escreve um dossie pode escrever este arquivo. Isso e estritamente mais que a ausencia total de comparacao que valia antes desta onda, e nao e prova de que o runtime real bateu com nenhum dos dois lados.",
+  "_seed_note": "O conjunto inicial de `supported` foi semeado a partir da UNICA declaracao real de runtime/modelo existente no registry no momento da criacao deste arquivo: `orchestration/registry.json:capabilities.graphify.exposure` (runtime.claude_code=2.1.226, model.name=opus-5). Nao e medicao do ambiente de execucao do portao - e o ponto de partida que a governanca escolheu para nao nascer vazio nem inventado."
+}

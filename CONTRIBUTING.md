@@ -65,7 +65,9 @@ bash tests/mutation/install.sh
 bash scripts/status.sh
 ```
 
-Execute também as demais suítes definidas em `.github/workflows/verify-pr.yml`.
+A bateria completa de `tests/unit/` roda com `bash tests/unit/run.sh` (despacho por disco de
+`tests/unit/*.sh` e `*.py`, com agregação de exit code por suíte). As suítes de mutação
+continuam listadas individualmente em `.github/workflows/verify-pr.yml`.
 
 ## Commits e revisão
 

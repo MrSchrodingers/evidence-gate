@@ -259,20 +259,92 @@ def _digest_da_policy(leitor=None) -> str | None:
     return h.hexdigest()
 
 
-def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
-    ev = cap.get("evidence") or {}
-    if ev.get("status") != "valid":
-        return False
-    d = ev.get("dossier")
-    if not d:
-        return False
-    bruto = leitor(d)
+# ONDA 28. VOCABULARIO E CHAVES OBRIGATORIAS VEM DA POLICY, NUNCA HARDCODED AQUI - o mesmo
+# criterio de F1/onda 15 e de CC8/onda 27: um portao que carrega o proprio criterio nao prova
+# nada sobre o artefato, so sobre si mesmo.
+_STALENESS = evpolicy.get("staleness") or {}
+EVSTATUS_VOCAB = list(_STALENESS.get("evidence_status_vocabulary") or [])
+AV_REQUIRED_KEYS = list(_STALENESS.get("evaluated_with_required_keys")
+                        or ["runtime", "model", "artifact_digest", "policy_digest"])
+STATUS_FRESH = "fresh"
+
+
+def _le_environment(leitor):
+    """Envelope declarado de runtime/modelo suportados (`orchestration/environment.json`),
+    NA ARVORE DO LEITOR. `None` quando ausente ou ilegivel."""
+    bruto = leitor("orchestration/environment.json")
     if bruto is None:
-        return False
+        return None
     try:
         doc = json.loads(bruto)
     except Exception:
-        return False
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _stale_por_ambiente(av: dict, leitor) -> list[str]:
+    """Motivos pelos quais o ambiente declarado em `av` (`evaluated_with`) esta FORA do
+    envelope suportado. Lista vazia = ambiente conforme. Envelope ausente ou ilegivel entra
+    como motivo (fail-closed): a ausencia do segundo lado da comparacao nao pode virar
+    aprovacao silenciosa - o mesmo principio que `_digest_de`/`_digest_da_policy` aplicam a
+    digest ausente. PELO LEITOR, NUNCA POR `_le_do_disco`: o mesmo achado C5/F2 dos digests -
+    usar o disco do processo para julgar a arvore-BASE e fail-open na direcao exata que a
+    onda 14 existiu para fechar."""
+    env = _le_environment(leitor)
+    if env is None:
+        return ["orchestration/environment.json ausente ou ilegivel - ambiente nao verificavel"]
+    suportado = env.get("supported") or {}
+    motivos = []
+    sup_rt = suportado.get("runtime")
+    sup_rt = sup_rt if isinstance(sup_rt, dict) else {}
+    rt = av.get("runtime")
+    if rt not in sup_rt:
+        motivos.append(f"runtime {rt!r} fora do conjunto suportado {sorted(sup_rt)}")
+    sup_rtv = suportado.get("runtime_version")
+    sup_rtv = sup_rtv if isinstance(sup_rtv, list) else []
+    rtv = av.get("runtime_version")
+    if rtv not in sup_rtv:
+        motivos.append(f"runtime_version {rtv!r} fora do conjunto suportado {sup_rtv}")
+    sup_md = suportado.get("model")
+    sup_md = sup_md if isinstance(sup_md, list) else []
+    md = av.get("model")
+    if md not in sup_md:
+        motivos.append(f"model {md!r} fora do conjunto suportado {sup_md}")
+    return motivos
+
+
+def _upstream_supersession_aberto(cap: dict) -> str | None:
+    """Nota da supersessao ABERTA declarada em `cap['upstream_supersession']`, ou `None` se
+    nao ha supersessao declarada ou ela ja foi marcada `resolved: true`. Gatilho de
+    REAVALIACAO (`evidence-policy.json:staleness.reevaluation_triggers`), nunca de
+    depreciacao: esta funcao e PURA sobre o dict e NUNCA le nem escreve `cap['state']` ou
+    `cap['installed']` - supersessao aberta impede `fresh`, e nao move o lifecycle."""
+    sup = cap.get("upstream_supersession")
+    if not isinstance(sup, dict) or not sup:
+        return None
+    if sup.get("resolved") is True:
+        return None
+    nota = sup.get("by") or sup.get("note") or "supersessao upstream declarada"
+    return f"upstream_supersession aberto: {nota}"
+
+
+def _status_derivado(cap: dict, leitor=_le_do_disco) -> tuple[str, list[str]]:
+    """Status MECANICO do dossie, independente do que `evidence.status` DECLARA: `('absent',
+    [])` sem dossie usavel; `('stale', motivos)` quando qualquer dependencia de
+    `evidence-policy.json:staleness.invalidated_by` nao casa (ou ha supersessao upstream
+    aberta); `('fresh', [])` caso contrario. Quem decide se o dossie e VALIDO como prova de
+    promocao (`dossie_valido`, abaixo) combina isto com o que a governanca DECLAROU."""
+    ev = cap.get("evidence") or {}
+    d = ev.get("dossier")
+    if not d:
+        return "absent", []
+    bruto = leitor(d)
+    if bruto is None:
+        return "absent", []
+    try:
+        doc = json.loads(bruto)
+    except Exception:
+        return "absent", []
     # O dossie tem de cobrir os SETE requisitos que a propria policy declara. Aceitar um
     # dossie que cubra menos seria reintroduzir a lacuna num nivel abaixo.
     #
@@ -282,22 +354,24 @@ def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
     # nomes, `r in doc` vira containment de substring e passava tambem. Uma string nao declara
     # campo nenhum, e o cabecalho promete verificar que o dossie DECLARA os campos.
     if not isinstance(doc, dict):
-        return False
+        return "absent", []
     if not all(r in doc and doc[r] not in (None, "", [], {}) for r in requisitos):
-        return False
+        return "absent", []
 
-    # EVIDENCEVALIDITY (onda 15). Valid(c, t0) NAO implica Valid(c, t1). Um dossie e o registro
-    # de um experimento PASSADO; quando muda aquilo sobre o que ele concluiu, ele deixa de valer
-    # e passa a STALE. Sem isto, "avaliado uma vez" viraria "avaliado para sempre" - e a forma
-    # temporal do mesmo defeito que este repositorio persegue, porque a garantia seguiria escrita
-    # depois de o fenomeno ter mudado.
+    # EVIDENCEVALIDITY (onda 15, estendida onda 28). Valid(c, t0) NAO implica Valid(c, t1). Um
+    # dossie e o registro de um experimento PASSADO; quando muda aquilo sobre o que ele
+    # concluiu, ele deixa de valer e passa a STALE. Sem isto, "avaliado uma vez" viraria
+    # "avaliado para sempre" - a forma temporal do mesmo defeito que este repositorio persegue.
     #
-    # DUAS DEPENDENCIAS SAO CONFERIDAS DE FATO, por digest computado aqui:
+    # DUAS DEPENDENCIAS SAO CONFERIDAS POR DIGEST COMPUTADO AQUI:
     #   artifact_digest  o proprio componente mudou desde a avaliacao
     #   policy_digest    a policy que define o que conta como evidencia mudou
-    # DUAS SAO APENAS DECLARADAS, e a distincao esta em evidence-policy.json:
-    #   runtime, model   um portao nao observa de dentro qual modelo executa a sessao. Exigir o
-    #                    campo torna a dependencia VISIVEL no artefato; nao a torna medida.
+    # DUAS SAO CONFERIDAS CONTRA UM ENVELOPE DECLARADO (onda 28, `orchestration/environment.json`):
+    #   runtime, runtime_version, model   ver `_stale_por_ambiente` - a comparacao e
+    #                    DECLARADO-contra-DECLARADO, nao observacao de runtime real.
+    # `skill_version` e exigido (presenca, `AV_REQUIRED_KEYS`) mas nao comparado contra nada:
+    #   nao ha, neste repositorio, um oraculo do "skill_version atualmente vigente" - exigir o
+    #   campo torna a dependencia VISIVEL no artefato, nao a torna medida.
     #
     # NAO SE APLICA A `executed_suite`. Evidencia por suite nao envelhece pelo mesmo motivo:
     # ela e REPRODUZIDA a cada execucao da CI. Se o componente mudar e a suite continuar
@@ -305,15 +379,35 @@ def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
     # registro; suite e producao. So o registro precisa de data de validade.
     av = doc.get("evaluated_with")
     if not isinstance(av, dict):
-        return False
-    if any(k not in av or not av[k] for k in ("runtime", "model")):
-        return False
+        return "absent", []
+    faltando = [k for k in AV_REQUIRED_KEYS if k not in av or not av[k]]
+    if faltando:
+        return "absent", [f"evaluated_with sem {faltando}"]
+
+    motivos: list[str] = []
     fonte = cap.get("source") or ""
     if av.get("artifact_digest") != _digest_de(fonte, leitor):
-        return False
+        motivos.append("artifact_digest: o componente mudou desde a avaliacao")
     if av.get("policy_digest") != _digest_da_policy(leitor):
+        motivos.append("policy_digest: a policy mudou desde a avaliacao")
+    motivos.extend(_stale_por_ambiente(av, leitor))
+    sup_motivo = _upstream_supersession_aberto(cap)
+    if sup_motivo:
+        motivos.append(sup_motivo)
+    return ("stale" if motivos else "fresh"), motivos
+
+
+def dossie_valido(cap: dict, leitor=_le_do_disco) -> bool:
+    """Usavel como prova de promocao: a governanca DECLAROU `evidence.status == "fresh"` E a
+    derivacao mecanica CONFIRMA `fresh`. As duas condicoes sao necessarias - a primeira e o
+    compromisso de que a evidencia foi revista e publicada como tal; a segunda e o que impede
+    o compromisso de ser falso (CC9b confere a mesma igualdade para TODA capability, nao so
+    para as promovidas)."""
+    ev = cap.get("evidence") or {}
+    if ev.get("status") != STATUS_FRESH:
         return False
-    return True
+    status, _ = _status_derivado(cap, leitor)
+    return status == STATUS_FRESH
 
 
 promovidas_sem_prova = [n for n, cap in sorted(caps.items())
