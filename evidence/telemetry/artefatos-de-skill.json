@@ -1,0 +1,5 @@
+{
+  "_comentario": "Mapa skill -> glob (relativo a base-artefatos, default $PWD) do artefato que a skill declara produzir em disco. So skills com um caminho de saida EXPLICITO na propria description/corpo do SKILL.md entram aqui - sem entrada, evidence/telemetry/medir-skills.sh reporta ROUTING/OPPORTUNITY UNRESOLVED em vez de arriscar um veredito sem denominador. Arquivo separado (nao chave de frontmatter) porque execution/skills/**/SKILL.md esta sob edicao de outro fluxo de trabalho no momento desta correcao (issue #53); mover para frontmatter fica para quando essa edicao concorrente for encerrada.",
+  "graphify": "graphify-out/graph.json",
+  "prd-to-plan": "plans/*.md"
+}

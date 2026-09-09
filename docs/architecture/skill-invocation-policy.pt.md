@@ -30,6 +30,35 @@ A flag também retira a descrição da Skill do contexto automático. Portanto r
 
 A decisão **não** é aplicada por analogia às demais Skills. `graphify`, por exemplo, continua elegível ao routing automático enquanto sua utilidade/routing são medidos.
 
+### G102 (issue #46) — a exceção do graphify passa a viver no artefato de política
+
+Até esta correção, `orchestration/skill-policy.json` tinha um campo `default_activation` sem
+definição operacional e sem consumidor: nenhum executável do repositório o lia para decidir
+coisa alguma, e a única asserção que o citava reabria o mesmo JSON e o comparava com o literal
+que ele contém. `orchestration/registry.json` declarava `capabilities.*.activation` sem que
+nada o conferisse contra o frontmatter real das Skills — chegou a divergir em 3 das 8
+(`depreciar`, `forge`, `prd-to-issues` diziam `contextual` enquanto o `SKILL.md` de cada uma
+tem `disable-model-invocation: true`), sem que nada ficasse vermelho.
+
+A correção:
+
+1. `skill-policy.json` ganha um bloco `activation` com `default`, `vocabulary` (enum fechado
+   `["manual", "contextual"]`), `mechanism` (a chave de frontmatter que produz cada valor) e
+   `model_invocable_exceptions` — a lista, com `reason` por item, das Skills que permanecem
+   elegíveis ao routing automático. A exceção do `graphify` deixa de viver só no controle
+   negativo do teste e passa a ser declarada aqui.
+2. `registry.json` corrigido nas 3 entradas que contradiziam o próprio frontmatter.
+3. `tests/unit/skill-invocation-policy.sh` compara, para cada Skill, o valor declarado em
+   `registry.json` contra o derivado do frontmatter, exige que toda Skill contextual tenha
+   entrada em `model_invocable_exceptions` com `reason` não vazio, e recusa qualquer valor de
+   `activation` fora do vocabulário fechado.
+
+LIMITE DECLARADO, e ele é o que impede sobre-reivindicação: isto fecha `PolicyDeclared !=
+PolicyEnforced` na camada de ARTEFATO — os três registros (policy, registry, frontmatter)
+passam a concordar entre si. Isto **não mede E_A**: não observa se o runtime de fato roteou ou
+deixou de rotear uma Skill. Ler isto como prova de ativação repetiria o defeito do ADR 0036
+(G6a) — representação do mecanismo não é o fenômeno.
+
 ## E_A — avaliação de ativação
 
 Para Skills auto-invocáveis, medir separadamente:

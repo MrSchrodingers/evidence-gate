@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "purpose": "G103 (issue #47). O kernel classifica por RISCO (execution/config/CLAUDE.md, secao 7: trivial/normal/medio/alto) e a orquestracao escalona por ID DE WORKFLOW (orchestration/workflows/*.json: investigation-only/standard-change/high-risk-change). Ate este artefato, a ligacao entre os dois vocabularios vivia so em prosa nao verificavel (CLAUDE.md:3 mapeia por DOMINIO da tarefa, nao por classe; docs/method/orquestracao-e-avaliacao.md:7 diz apenas 'o classificador escolhe'). Este arquivo declara a funcao risco->workflow como artefato versionado; orchestration/render.py a verifica contra duas fontes que ela nao controla: o dominio do kernel e o diretorio de workflows em disco.",
+  "domain_source": "execution/config/CLAUDE.md, secao '## 7. Delegação por risco, não por ritual' (a tabela `| Risco | Caminho |`). As classes NAO sao copiadas aqui: copia envelheceria sem que nada acusasse a divergencia. orchestration/render.py le a tabela em tempo de verificacao.",
+  "decision": "ADR 0043 registra a escolha entre duas opcoes legitimas (mapear 'normal' para um workflow novo fiel a linha do kernel, ou convergir 'normal' e 'medio' para standard-change como superprovisionamento deliberado). Este arquivo implementa a Opcao A: 'normal' e 'medio' convergem para standard-change.",
+  "map": {
+    "trivial": {
+      "workflow": null,
+      "rationale": "caminho direto (kernel: 'direto'); nenhum grafo multi-no e escalonado para este risco. Ausencia DECLARADA, nao inferida por omissao."
+    },
+    "normal": {
+      "workflow": "standard-change",
+      "rationale": "OPCAO A (ADR 0043): superprovisionamento deliberado. O kernel pede so 'escrever, testar' para 'normal', e standard-change impoe tambem review e refute - o que colide com a linha imediatamente abaixo da tabela do kernel ('revisor nao e imposto: se ha teste que falhava e agora passa mais suite verde, um terceiro modelo pode custar mais do que rende'). O custo aceito e revisao/refutacao rodarem mesmo quando o kernel as dispensaria; a alternativa (um workflow 'normal-change' dedicado) tem custo medido em tests/unit/schedule.sh (novo workflow desloca a contagem de 3 para 4) e nao foi escolhida nesta correcao."
+    },
+    "medio": {
+      "workflow": "standard-change",
+      "rationale": "coincide com o kernel: 'medio' pede 'escrever, testar, revisar', e standard-change cobre exatamente isso (mais refute, que o kernel nao proibe para este risco)."
+    },
+    "alto": {
+      "workflow": "high-risk-change",
+      "rationale": "coincide com o kernel: 'alto' pede 'investigar, escrever, testar, revisar, refutar', e high-risk-change acrescenta threat-model, mutation e security - superprovisionamento no mesmo sentido de CLAUDE.md:3 (autorizacao/parser/dependencia/instalacao/CI), nao contestado por nenhuma linha do kernel."
+    }
+  },
+  "not_risk_selected": {
+    "investigation-only": "selecionado pelo TIPO da tarefa (investigar sem mutar), nao por classe de risco. Sem esta entrada o workflow ficaria fora do alcance da funcao risco->workflow por acidente, nao por declaracao."
+  },
+  "limits": "Esta funcao e AUDITAVEL, nao EXECUTADA: nenhum runtime le id de workflow a partir de classe de risco hoje (grep sem leitor em .claude/, .codex/, control/, execution/skills/). orchestration/classify roda como no de ENTRADA de standard-change e high-risk-change - a classificacao acontece DEPOIS da escolha do workflow, uma inversao estrutural que este arquivo torna visivel e nao resolve. Ver docs/adr/0043."
+}

@@ -219,6 +219,94 @@ chk "GS2 com graph.json presente, o hook orienta" \
 chk "GS3 e o aviso vem com o guardrail de que grafo e batedor, nao oraculo" \
   "$(printf '%s' "$GS_COM" | grep -ci 'hipotese')" 1
 
+# GS4/GS5/GS6 - PORTAO TOLLENS_ROUTING_NUDGES (G108/issue #52). O hook e um SEGUNDO canal de
+# routing: stdout de UserPromptSubmit chega ao modelo como contexto (docs/method/CONHECIMENTO.md
+# secao 4), em paralelo a description da skill. Sem um jeito mecanico de desligar SO este hook, o
+# braco `without_skill` de um E_A nunca fica limpo - o nudge continua sugerindo `graphify extract`
+# mesmo com a skill fora do prompt. Os tres casos rodam com um stub de `graphify` sintetizado em
+# tempo de execucao (nunca instala o binario real), o que torna alcancavel em qualquer estacao o
+# ramo `elif` da linha 39 do hook - responsavel por 4647 das 7248 emissoes reais e sem caso de
+# teste algum ate esta onda.
+mkdir -p "$T/comgraphify/bin"
+printf '#!/bin/sh\nexit 0\n' > "$T/comgraphify/bin/graphify"; chmod +x "$T/comgraphify/bin/graphify"
+export PATH="$T/comgraphify/bin:$PATH"
+mkdir -p "$T/repo_semgrafo/.git" "$T/repo_comgrafo/.git" "$T/repo_comgrafo/graphify-out"
+printf '{"built_at_commit":"0000000"}' > "$T/repo_comgrafo/graphify-out/graph.json"
+
+N1=$(TOLLENS_ROUTING_NUDGES=off CLAUDE_PROJECT_DIR="$T/repo_semgrafo" bash "$GS" </dev/null 2>/dev/null | wc -c | tr -d ' ')
+N2=$(TOLLENS_ROUTING_NUDGES=off CLAUDE_PROJECT_DIR="$T/repo_comgrafo" bash "$GS" </dev/null 2>/dev/null | wc -c | tr -d ' ')
+chk "GS4 com TOLLENS_ROUTING_NUDGES=off o hook nao emite (braco A do E_A)" "$N1+$N2" "0+0"
+
+SAIDA="$(CLAUDE_PROJECT_DIR="$T/repo_semgrafo" bash "$GS" </dev/null 2>/dev/null)"
+M1=$(printf '%s' "$SAIDA" | wc -c | tr -d ' ')
+M2=$(CLAUDE_PROJECT_DIR="$T/repo_comgrafo" bash "$GS" </dev/null 2>/dev/null | wc -c | tr -d ' ')
+# ANTIVACUIDADE: se o portao virasse `exit 0` incondicional, GS4 passaria sozinho e apagaria a
+# funcao operacional que o criterio 4 da issue manda preservar. GS5 prova que, SEM a variavel, o
+# hook continua falando nas mesmas duas condicoes de GS4.
+chk "GS5 sem o switch, o hook continua orientando (o portao nao virou mordaca)" \
+  "$([ "$M1" -gt 0 ] && [ "$M2" -gt 0 ] && echo fala || echo mudo)" "fala"
+
+# GS6 fecha o ponto cego que deixou G108 passar: o ramo `elif` (repo sem grafo, graphify
+# alcancavel) nao tinha caso algum antes desta onda.
+chk "GS6 repo sem grafo mas com graphify alcancavel: o hook FALA (ramo elif)" \
+  "$(printf '%s' "$SAIDA" | grep -c 'Repo sem knowledge graph')" 1
+
+echo "== CV. conformidade DECLARACAO-vs-COMPORTAMENTO: routing_covariates vs UserPromptSubmit real =="
+# Dois lados independentes, nenhum contendo a string do outro. Lado A e DERIVADO da fonte unica de
+# hooks (install/hooks-spec.sh), filtrando os classificados hook_instrument em
+# orchestration/registry.json (ds4-notify.sh so registra, nao orienta). Lado B e DECLARADO em
+# orchestration/evaluation-protocol.json#routing_covariates. Registrar hook novo em
+# UserPromptSubmit sem declara-lo como co-variavel reprova; declarar co-variavel que ninguem
+# registra tambem reprova.
+CV_OUT="$(python3 - "$T/repo_comgrafo" <<'PY'
+import json, os, re, subprocess, sys
+
+repo_dir = sys.argv[1]
+spec = subprocess.run(["bash", "install/hooks-spec.sh", "$HOME/.claude/hooks"],
+                       capture_output=True, text=True, check=True).stdout
+spec_json = json.loads(spec)
+ups = spec_json.get("UserPromptSubmit", [])
+brutos = set()
+for bloco in ups:
+    for h in bloco.get("hooks", []):
+        m = re.search(r'([^/\s]+\.sh)\s*$', h.get("command", ""))
+        if m:
+            brutos.add(m.group(1))
+
+registry = json.load(open("orchestration/registry.json", encoding="utf-8"))
+caps = registry["capabilities"]
+lado_a = {n for n in brutos if caps.get(n, {}).get("kind") != "hook_instrument"}
+
+protocolo = json.load(open("orchestration/evaluation-protocol.json", encoding="utf-8"))
+rc = protocolo.get("routing_covariates", {})
+entradas = rc.get("hooks", [])
+lado_b = {e["hook"] for e in entradas}
+
+print("A1=" + ("ok" if lado_a == lado_b else f"fail derivado={sorted(lado_a)} declarado={sorted(lado_b)}"))
+
+off_env = rc.get("off_switch_env")
+a2 = "ok"
+for e in entradas:
+    if e.get("off_switch_required"):
+        hook_path = caps.get(e["hook"], {}).get("source")
+        if not hook_path or not off_env:
+            a2 = f"fail sem source ou off_switch_env para {e['hook']}"
+            break
+        env = dict(os.environ)
+        env[off_env] = "off"
+        env["CLAUDE_PROJECT_DIR"] = repo_dir
+        r = subprocess.run(["bash", hook_path], input="", capture_output=True, text=True, env=env)
+        if len(r.stdout) != 0:
+            a2 = f"fail {e['hook']} com {off_env}=off emitiu {len(r.stdout)} bytes"
+            break
+print("A2=" + a2)
+PY
+)"
+chk "CV1 conjunto declarado em routing_covariates.hooks == UserPromptSubmit real (exclui hook_instrument)" \
+  "$(printf '%s\n' "$CV_OUT" | grep '^A1=')" "A1=ok"
+chk "CV2 cada hook com off_switch_required=true silencia sob o off_switch_env declarado no protocolo" \
+  "$(printf '%s\n' "$CV_OUT" | grep '^A2=')" "A2=ok"
+
 echo "== SP. subagent-probe.sh - INSTRUMENTO: so registra =="
 SPLOG="$HOME/.claude/logs/subagent-probe.jsonl"
 rm -f "$SPLOG"

@@ -1,6 +1,38 @@
 {
   "schema_version": 1,
-  "default_activation": "off",
+  "activation": {
+    "_comment": "G102 (issue #46). `default_activation` era um termo sem definicao operacional e sem consumidor: nenhum executavel do repositorio o lia para decidir coisa alguma. Este bloco declara o MECANISMO real e o vocabulario fechado, para que orchestration/registry.json e o frontmatter de execution/skills/<n>/SKILL.md tenham uma unica leitura possivel, conferida por tests/unit/skill-invocation-policy.sh.",
+    "default": "manual",
+    "vocabulary": ["manual", "contextual"],
+    "mechanism": "execution/skills/<n>/SKILL.md, chave de frontmatter `disable-model-invocation`: `true` produz `manual` (skill retirada do routing automatico do modelo, so invocavel por comando explicito do operador); ausencia ou `false` produz `contextual` (elegivel a selecao automatica pelo modelo).",
+    "model_invocable_exceptions": [
+      {
+        "skill": "design-system-proposal",
+        "reason": "gera um artifact HTML local (efeito de escrita local e reversivel); nao cria estado remoto nem side effect irreversivel.",
+        "ref": "execution/skills/design-system-proposal/SKILL.md"
+      },
+      {
+        "skill": "graphify",
+        "reason": "leitura/analise local (grafo em graphify-out/); nao cria estado remoto. Decisao registrada explicitamente como controle negativo: a politica nao generaliza por analogia o manual-only de prd-to-issues.",
+        "ref": "docs/architecture/skill-invocation-policy.pt.md"
+      },
+      {
+        "skill": "grill-me",
+        "reason": "entrevista textual dentro da propria sessao; nenhum efeito de escrita fora da conversa.",
+        "ref": "execution/skills/grill-me/SKILL.md"
+      },
+      {
+        "skill": "prd-to-plan",
+        "reason": "grava markdown local em ./plans/; efeito local e reversivel via controle de versao.",
+        "ref": "execution/skills/prd-to-plan/SKILL.md"
+      },
+      {
+        "skill": "write-a-prd",
+        "reason": "grava PRD local via entrevista; efeito local e reversivel via controle de versao.",
+        "ref": "execution/skills/write-a-prd/SKILL.md"
+      }
+    ]
+  },
   "selection": {
     "mode": "evidence-gated",
     "require_observable_trigger": true,

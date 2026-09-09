@@ -6,6 +6,14 @@
 # survives graphify upgrades). See ~/.claude/CLAUDE.md secao 9 (ferramentas).
 set +e
 
+# Este hook e uma co-variavel de routing, nao ambiente neutro: stdout de UserPromptSubmit chega
+# ao modelo como contexto (docs/method/CONHECIMENTO.md secao 4), em paralelo a description da
+# skill graphify. O braco A_router_puro de um E_A (orchestration/evaluation-protocol.json,
+# routing_covariates) exige este nudge desligado, sem editar o arquivo a mao; a variavel
+# TOLLENS_ROUTING_NUDGES=off e o desligamento mecanico. Portao antes de qualquer leitura de
+# disco, para que o silencio seja atribuivel a variavel e nao a ausencia de graphify.
+case "${TOLLENS_ROUTING_NUDGES:-on}" in off|0|false) exit 0 ;; esac
+
 DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 GRAPH="$DIR/graphify-out/graph.json"
 

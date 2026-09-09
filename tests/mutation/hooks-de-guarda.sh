@@ -19,7 +19,7 @@ cd "$(dirname "$0")/../.." || exit 1
 . tests/lib/lock.sh
 . tests/lib/arena.sh
 
-P=0; F=0; EXPECTED_MUTANTS=18
+P=0; F=0; EXPECTED_MUTANTS=19
 SUITE="tests/unit/hooks-de-guarda.sh"
 AD="control/hooks/artifact-discipline.sh"
 SM="control/hooks/self-mod-audit.sh"
@@ -148,6 +148,8 @@ mutante MHG12 "$GS" "sem a guarda de topo: passa a falar em repo que nao usa gra
 fi' '   && [ ! -f "$GRAPH" ]; then
   :
 fi'
+mutante MHG19 "$GS" "sem o portao TOLLENS_ROUTING_NUDGES: braco A do E_A deixa de conseguir desligar o nudge (G108/#52)" 1 \
+  'off|0|false) exit 0 ;; esac' 'off|0|false) : ;; esac'
 mutante MHG13 "$SP" "instrumento passa a TRUNCAR o registro em vez de acrescentar" 1 \
   "printf '%s\\n' \"\$IN\" >> \"\$LOG\"" "printf '%s\\n' \"\$IN\" > \"\$LOG\""
 [ "$DS_EXERCITADO" = 1 ] && \

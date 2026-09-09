@@ -50,6 +50,14 @@ Utilidade da skill e qualidade do seletor são problemas distintos. O protocolo 
 
 Enquanto não houver evidência de composição, o limite é uma skill por tarefa. Injeção blanket é proibida.
 
+## Co-variáveis de routing
+
+Um hook de `UserPromptSubmit` que escreve em stdout não é ambiente neutro: esse stdout é entregue ao modelo como contexto, no mesmo papel de canal de routing que a description da skill. Um hook nessa condição é co-variável do experimento, não parte fixa do ambiente `E`.
+
+O braço `A_router_puro` (description-only, sem skill instalada) exige todo hook de routing desligado — mecanicamente, via `TOLLENS_ROUTING_NUDGES=off`, nunca por edição manual do hook a cada execução. O braço `B_sistema_deployado` (skill mais nudge ligados) é outro experimento: mede se skill e hook juntos produzem uso, não se a description sozinha roteia. Cada trial registra qual dos dois braços rodou (`orchestration/evaluation-protocol.json#design.arms`).
+
+Dose medida do nudge de `graphify-scout-mode.sh` sobre a base de transcripts consultada: presente em 858 de 1107 transcripts, 7248 emissões, entregue duas vezes por prompt (escopo de usuário e escopo managed leem `UserPromptSubmit` cada um). O limite do desligamento mecânico: em uma imagem sem `graphify` instalado o hook já silencia sozinho pela guarda de topo, então a ausência de nudge nessas execuções não é intencional — é efeito colateral da imagem, não do desenho experimental. Por isso o desligamento do braço A precisa ser explícito (`TOLLENS_ROUTING_NUDGES=off`) e registrado, nunca inferido do silêncio observado.
+
 ## Compatibilidade e interferência contextual
 
 Toda skill candidata declara proveniência, domínio, versões suportadas, precondições e referências. A avaliação inclui casos deliberadamente próximos mas incompatíveis para detectar anchoring, concept bleed e orientação version-mismatched.

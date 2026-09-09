@@ -27,7 +27,7 @@ cd "$(dirname "$0")/../.." || exit 1
 . tests/lib/lock.sh
 . tests/lib/arena.sh
 
-P=0; F=0; EXPECTED_MUTANTS=27
+P=0; F=0; EXPECTED_MUTANTS=29
 REG="orchestration/registry.json"
 LOCK="install/manifest.lock"
 POR="tests/unit/capability-conformance.py"
@@ -272,6 +272,30 @@ p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+"\n")'
   else echo "  SOBREVIVEU MCAP27 - suite deixa de ser enumerada pelo gerador (exit=$_got, esperado=1)"; F=$((F+1)); fi
   mv -f scripts/status.sh.bak scripts/status.sh
 fi
+
+echo "== onda 27 (G104, issue #48): numero de aparencia medida e derivado, nao guardado =="
+# CADA MUTANTE MUTA O ARTEFATO, NUNCA O PORTAO (cabecalho, linha 23). MCAP28 muta so o registry
+# (coberto por _bak/_rst via `mutante`); MCAP29 muta TAMBEM a fonte, e por isso nao usa o helper.
+mutante MCAP28 "valor obsoleto de measured_size_bytes volta a claude-md reprova" 1 \
+  "$_PY"'c["claude-md"]["measured_size_bytes"]=18274'"$_SAVE"
+
+# MCAP29 - o UNICO mutante que distingue "le a fonte" de "compara com um literal escondido no
+# portao". Registra o valor CORRETO (st_size atual de execution/config/CLAUDE.md) no registry -
+# CC7 deve aprovar nesse instante - e SO DEPOIS muda a fonte em 1 byte. `_bak`/`_rst` cobrem
+# apenas REG e LOCK; a fonte mutada aqui nao esta coberta, entao usa cp/mv proprio, precedente
+# exato em MCAP27 (scripts/status.sh.bak).
+_CLAUDE_MD="execution/config/CLAUDE.md"
+cp "$REG" "$REG.bak"
+cp "$_CLAUDE_MD" "$_CLAUDE_MD.bak"
+python3 -c "$_PY"'
+import pathlib
+c["claude-md"]["measured_size_bytes"] = pathlib.Path("execution/config/CLAUDE.md").stat().st_size'"$_SAVE"
+printf '\n' >> "$_CLAUDE_MD"
+python3 "$POR" >/dev/null 2>&1; _got=$?
+if [ "$_got" -eq 1 ]; then echo "  MORTO MCAP29 - registry correto no instante da escrita, fonte muda depois (exit=1)"; P=$((P+1))
+else echo "  SOBREVIVEU MCAP29 - registry correto no instante da escrita, fonte muda depois (exit=$_got, esperado=1)"; F=$((F+1)); fi
+mv -f "$REG.bak" "$REG"
+mv -f "$_CLAUDE_MD.bak" "$_CLAUDE_MD"
 
 rm -rf evidence/skills execution/skills/nova tests/unit/nao-enumerada.sh 2>/dev/null
 echo

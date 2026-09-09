@@ -356,9 +356,11 @@ check(not retirada_instalada, "nenhuma capability deprecated/rejected permanece 
       + ("" if not retirada_instalada else f" - instaladas: {retirada_instalada}"))
 
 # O SEGUNDO LADO DO MESMO FURO. `quarantine` significa "nova, nao avaliada", e a policy poe
-# `default_activation: off`. Uma capability nao avaliada instalada e carregavel e exatamente o
-# risco que a quarentena existe para conter - e era a rota de entrada que escapava do teto.
-# Quarentena se exercita por invocacao local explicita, nao por instalacao.
+# `activation.default: manual` (G102, issue #46 - o campo antigo `default_activation: off` nao
+# tinha executor nem definicao operacional; ver orchestration/skill-policy.json e
+# tests/unit/skill-invocation-policy.sh). Uma capability nao avaliada instalada e carregavel e
+# exatamente o risco que a quarentena existe para conter - e era a rota de entrada que escapava
+# do teto. Quarentena se exercita por invocacao local explicita, nao por instalacao.
 quarentena_instalada = [n for n, cap in sorted(caps.items())
                         if cap.get("state") == "quarantine" and cap.get("installed")]
 check(not quarentena_instalada, "nenhuma capability em quarantine esta instalada"
@@ -850,6 +852,68 @@ check(isinstance(_invar.get("single_writer_is_scheduling_only"), bool)
 # repositorio ja pagou essa forma cinco vezes.
 check(len(caps) >= 5, f"ha capabilities a conferir (medido: {len(caps)})")
 check(len(requisitos) >= 5, f"a policy declara requisitos de promocao (medido: {len(requisitos)})")
+
+# ---------------------------------------------------------------------------------------
+print("== CC7. numero de aparencia medida e derivado, nao guardado ==")
+# ACHADO G104 (issue #48). `claude-md` declarava `measured_size_bytes: 18274` como literal
+# digitado a mao, sem nenhuma derivacao a partir de `source` nem nenhuma assercao que
+# comparasse os dois. A fonte mudou (ce57138, 18274 -> 2924 bytes) e o campo ficou parado em
+# 18274, com o portao saindo 0: o nome prometia OBSERVACAO e entregava ESTADO GUARDADO.
+#
+# A correcao adotada foi REMOVER o campo, nao deriva-lo: zero consumidores medidos por
+# varredura do repositorio, e um leitor a mais so pagaria stat() e dependencia de I/O no
+# portao para publicar um numero que ninguem le. O que tem de sobreviver a remocao nao e o
+# numero, e a REGRA que impede a classe de voltar - por isso esta secao e por CLASSE de nome
+# (`^measured_` ou sufixo `_(bytes|count)$`), nao pelo literal `claude-md`: o proximo
+# `measured_line_count` digitado a mao ja nasce reprovando.
+_PADRAO_MEDIDO = re.compile(r"^measured_|_(bytes|count)$")
+
+
+def _varre_medidos(caps_):
+    """(capability, campo, valor declarado) para todo campo de aparencia medida."""
+    return [(n, k, v) for n, cap in sorted(caps_.items())
+            for k, v in cap.items() if _PADRAO_MEDIDO.search(k)]
+
+
+def _deriva_medido(cap, campo):
+    """Recomputa o valor a partir do artefato em `source`. `None` = nao derivavel - campo de
+    aparencia medida sem fonte, ou com fonte inexistente, e a propria fuga que esta secao
+    existe para fechar, entao NAO passa por vacuidade."""
+    if campo.endswith("_size_bytes"):
+        src = cap.get("source")
+        if not src:
+            return None
+        caminho = ROOT / src
+        return caminho.stat().st_size if caminho.is_file() else None
+    return None
+
+
+_medidos = _varre_medidos(caps)
+_nao_derivaveis = [f"{n}.{k}={v!r}" for n, k, v in _medidos if _deriva_medido(caps[n], k) is None]
+check(not _nao_derivaveis,
+      "todo campo de aparencia medida e derivavel de `source`"
+      + ("" if not _nao_derivaveis else f" - sem derivacao: {_nao_derivaveis}"))
+
+_divergentes = [f"{n}.{k}: declarado={v} derivado={_deriva_medido(caps[n], k)}"
+                for n, k, v in _medidos if _deriva_medido(caps[n], k) not in (None, v)]
+check(not _divergentes,
+      "todo campo de aparencia medida bate com o valor derivado do artefato"
+      + ("" if not _divergentes else f" - {_divergentes}"))
+
+# ANTIVACUIDADE. Apos a remocao do campo em `claude-md`, o conjunto varrido acima fica VAZIO
+# e as duas assercoes anteriores passam por vacuidade - "verde" deixaria de distinguir
+# "conforme" de "nao ha o que conferir", a mesma forma que este arquivo ja pagou cinco vezes
+# (ver fim de CC6). O controle positivo aplica o MESMO walker e o MESMO comparador a um
+# fragmento sintetico em memoria, com fonte real (para ser derivavel) e valor sabidamente
+# errado, e exige que ele seja acusado.
+_sintetico = {"__cc7_controle__": {"source": "orchestration/registry.json",
+                                    "measured_size_bytes": -1}}
+_hits_sinteticos = _varre_medidos(_sintetico)
+_acusado = any(_deriva_medido(_sintetico[n], k) not in (None, v) for n, k, v in _hits_sinteticos)
+check(len(_hits_sinteticos) == 1 and _acusado,
+      "controle positivo: o walker acusa um valor sabidamente errado em fragmento sintetico"
+      + ("" if (len(_hits_sinteticos) == 1 and _acusado)
+         else f" - hits={_hits_sinteticos} acusado={_acusado}"))
 
 failed = sum(not ok for ok, _ in checks)
 print(f"\nTOTAL={len(checks)} FAIL={failed}")

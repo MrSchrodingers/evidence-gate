@@ -207,7 +207,7 @@ if len(corpus["findings"]) < 10:
 ids_corpus = {f.get("finding_id") for f in corpus["findings"]}
 faltando: dict[str, list[str]] = {}
 for adr in sorted((ROOT / "docs/adr").glob("*.md")):
-    citados = set(re.findall(r"\*\*([A-Z]\d{1,2})\*{0,2} [-\u2014]", adr.read_text(encoding="utf-8")))
+    citados = set(re.findall(r"\*\*([A-Z]\d{1,3})\*{0,2} [-\u2014]", adr.read_text(encoding="utf-8")))
     ausentes = sorted(citados - ids_corpus)
     if ausentes:
         faltando[adr.name] = ausentes
@@ -218,7 +218,7 @@ if faltando:
 # nao distinguiria "completo" de "nada a conferir".
 _citados_total = set()
 for adr in sorted((ROOT / "docs/adr").glob("*.md")):
-    _citados_total |= set(re.findall(r"\*\*([A-Z]\d{1,2})\*{0,2} [-\u2014]", adr.read_text(encoding="utf-8")))
+    _citados_total |= set(re.findall(r"\*\*([A-Z]\d{1,3})\*{0,2} [-\u2014]", adr.read_text(encoding="utf-8")))
 if len(_citados_total) < 5:
     raise SystemExit(f"FAIL completude vacua: so {len(_citados_total)} identificadores citados em ADR")
 
