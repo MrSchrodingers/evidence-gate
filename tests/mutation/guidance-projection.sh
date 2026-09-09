@@ -13,9 +13,9 @@
 # passa a reprovar.
 #
 # TRES MUTANTES, um por garantia citada no plano de G110:
-#   M1 - guarda de vacuidade do dominio (<2 classes) deixa de abortar;
-#   M2 - vocabulario de agente deixa de vir do registry e passa a ser literal hard-coded;
-#   M3 - not_risk_selected_actors deixa de ser somado ao alcance (ignorado).
+#   MGP1 - guarda de vacuidade do dominio (<2 classes) deixa de abortar;
+#   MGP2 - vocabulario de agente deixa de vir do registry e passa a ser literal hard-coded;
+#   MGP3 - not_risk_selected_actors deixa de ser somado ao alcance (ignorado).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 # LOCK: suites deste repo nao sao reentrantes entre si (tests/lib/lock.sh).
@@ -74,26 +74,26 @@ mutante(){ # $1=nome $2=descricao $3=caso-alvo (regex) que DEVE reprovar $4..=co
 
 echo "== mutacao: cada garantia removida DEVE quebrar o caso que a exercita =="
 
-# M1 - GUARDA DE VACUIDADE (dominio). Sem ela, um kernel com dominio degenerado (<2 classes) nao
+# MGP1 - GUARDA DE VACUIDADE (dominio). Sem ela, um kernel com dominio degenerado (<2 classes) nao
 # aborta mais - a fixture G1 deixa de acusar a ausencia da guarda.
-mutante M1 "dominio de risco com menos de 2 classes aborta o oraculo (GUARDA DE VACUIDADE)" \
+mutante MGP1 "dominio de risco com menos de 2 classes aborta o oraculo (GUARDA DE VACUIDADE)" \
   "G1 diagnostica a guarda, nao aprova por ausencia de ramo" \
   troca "assert len(classes) >= 2, f'guarda de vacuidade: dominio de classes de risco tem menos de 2 elementos ({classes})'" \
         "assert True, f'guarda de vacuidade: dominio de classes de risco tem menos de 2 elementos ({classes})'"
 
-# M2 - VOCABULARIO DE AGENTE NAO E HARD-CODED. O oraculo tem de ler os nomes de agente das
+# MGP2 - VOCABULARIO DE AGENTE NAO E HARD-CODED. O oraculo tem de ler os nomes de agente das
 # CHAVES do registry, nunca de uma lista fixa - senao um agente orfao NOVO, fora dessa lista,
 # deixaria de ser acusado. A fixture NEG usa 'agente-orfao', que nao esta na lista hard-coded do
 # mutante.
-mutante M2 "nomes de agente vem do registry, nunca de literal hard-coded" \
+mutante MGP2 "nomes de agente vem do registry, nunca de literal hard-coded" \
   "NEG fixture negativa \(hook prescreve agente orfao\): RECUSADO" \
   troca "agentes = set(reg.get('agents') or {})" \
         "agentes = {'agente-a', 'agente-b', 'agente-c', 'agente-fora-do-alcance'}"
 
-# M3 - not_risk_selected_actors E SOMADO AO ALCANCE, NAO IGNORADO - o proprio achado de G110.
+# MGP3 - not_risk_selected_actors E SOMADO AO ALCANCE, NAO IGNORADO - o proprio achado de G110.
 # Ignora-lo faz todo agente ali declarado (agente-fora-do-alcance na fixture; revisor-frontend,
 # analista-otimalidade e analista-fluxos na politica real) virar orfao de novo.
-mutante M3 "not_risk_selected_actors e somado ao alcance, nao ignorado" \
+mutante MGP3 "not_risk_selected_actors e somado ao alcance, nao ignorado" \
   "POS fixture positiva \(toda prescricao alcancavel ou declarada\): aprova" \
   troca "nao_selecionados = set(pol.get('not_risk_selected_actors') or {})" \
         "nao_selecionados = set()"
